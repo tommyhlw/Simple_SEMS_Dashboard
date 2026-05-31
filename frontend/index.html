@@ -10,6 +10,7 @@
       .container { max-width:1000px; margin:0 auto; padding:6px; }
       #chart-container { width: 100%; }
       #current-values{max-width:1000px;margin:12px auto 0}
+      .metric { border-left:6px solid transparent; }
       .metric .icon{width:28px;text-align:center}
       button{background:#0366d6;color:#fff;border:none;padding:6px 10px;border-radius:6px;cursor:pointer}
       button.secondary{background:#6c757d}
@@ -17,6 +18,7 @@
         body{margin:12px}
         .metric{width:100%}
         .metric div{display:block}
+        .container { padding:4px }
       }
     </style>
   </head>
@@ -116,7 +118,8 @@
           },
           options: Object.assign({
             responsive: true,
-            plugins: { legend: { position: 'top' } },
+            aspectRatio: opts.aspectRatio || (4/3),
+            plugins: { legend: { position: 'top', labels: { font: { size: opts.legendFontSize || 11 }, boxWidth: opts.legendBoxWidth || 10 } } },
             elements: { point: { radius: 0 } },
             scales: {
               y: { title: { display: true, text: opts.yLabel || 'kW' } },
@@ -156,12 +159,20 @@
         // clear tbody
         tbody.innerHTML = '';
         const start = showAll ? 0 : Math.max(0, labels.length - 10);
+        // determine column colors from chart datasets (fallback to defaults)
+        const pvColor = (chart && chart.data && chart.data.datasets[0] && chart.data.datasets[0].borderColor) ? chart.data.datasets[0].borderColor : '#03bbd6';
+        const meterColor = (chart && chart.data && chart.data.datasets[1] && chart.data.datasets[1].borderColor) ? chart.data.datasets[1].borderColor : '#fbb03b';
+        const houseColor = (chart && chart.data && chart.data.datasets[2] && chart.data.datasets[2].borderColor) ? chart.data.datasets[2].borderColor : '#2ca02c';
         for (let i = start; i < labels.length; i++) {
           const tr = document.createElement('tr');
           const t1 = document.createElement('td'); t1.style.border='1px solid #eee'; t1.style.padding='6px'; t1.textContent = labels[i];
           const t2 = document.createElement('td'); t2.style.border='1px solid #eee'; t2.style.padding='6px'; t2.textContent = (pvData[i] != null) ? pvData[i] : '';
           const t3 = document.createElement('td'); t3.style.border='1px solid #eee'; t3.style.padding='6px'; t3.textContent = (meterData[i] != null) ? meterData[i] : '';
           const t4 = document.createElement('td'); t4.style.border='1px solid #eee'; t4.style.padding='6px'; t4.textContent = (houseData[i] != null) ? houseData[i] : '';
+          // color the value text to match the chart legend/dataset colors
+          t2.style.color = pvColor;
+          t3.style.color = meterColor;
+          t4.style.color = houseColor;
           tr.appendChild(t1); tr.appendChild(t2); tr.appendChild(t3); tr.appendChild(t4);
           tbody.appendChild(tr);
         }
@@ -181,7 +192,7 @@
               { label: 'PCurve Power Meter (kW)', data: meterData, borderColor: '#fbb03b', backgroundColor: 'rgba(251,176,59,0.1)', fill: false },
               { label: 'PCurve Power House (kW)', data: houseData, borderColor: '#2ca02c', backgroundColor: 'rgba(44,160,44,0.08)', fill: false }
             ];
-            chart = createChart(document.getElementById('pvChart'), labels, ds, { yLabel: 'kW' });
+            chart = createChart(document.getElementById('pvChart'), labels, ds, { yLabel: 'kW', aspectRatio: 4/3, legendFontSize: 11, legendBoxWidth: 10 });
           } else {
             chart.data.labels = labels;
             // update data and preserve visual settings
@@ -215,6 +226,15 @@
         document.getElementById('val-meter').textContent = (meter != null) ? meter + ' kW' : '—';
         document.getElementById('val-house').textContent = (house != null) ? house + ' kW' : '—';
         document.getElementById('val-time').textContent = time || '—';
+        // color metric boxes and value text to match chart dataset colors
+        try {
+          const pvCol = (chart && chart.data && chart.data.datasets[0] && chart.data.datasets[0].borderColor) ? chart.data.datasets[0].borderColor : '#03bbd6';
+          const meterCol = (chart && chart.data && chart.data.datasets[1] && chart.data.datasets[1].borderColor) ? chart.data.datasets[1].borderColor : '#fbb03b';
+          const houseCol = (chart && chart.data && chart.data.datasets[2] && chart.data.datasets[2].borderColor) ? chart.data.datasets[2].borderColor : '#2ca02c';
+          const mPV = document.getElementById('m-pv'); if (mPV) { mPV.style.borderLeftColor = pvCol; document.getElementById('val-pv').style.color = pvCol; }
+          const mMeter = document.getElementById('m-meter'); if (mMeter) { mMeter.style.borderLeftColor = meterCol; document.getElementById('val-meter').style.color = meterCol; }
+          const mHouse = document.getElementById('m-house'); if (mHouse) { mHouse.style.borderLeftColor = houseCol; document.getElementById('val-house').style.color = houseCol; }
+        } catch (ee) { /* ignore */ }
       }
 
       // hook buttons
