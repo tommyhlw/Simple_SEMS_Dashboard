@@ -22,9 +22,8 @@ jobs:
         
     - name: Build the Docker image & Push to Docker Hub  
       run: |
-        TAG=$(date +%s)
         docker build . --file Dockerfile \
           --tag ${{ vars.DOCKERHUB_USERNAME }}/simple-sems-dashboard:latest \
-          --tag ${{ vars.DOCKERHUB_USERNAME }}/simple-sems-dashboard:$TAG
-        docker push ${{ secrets.DOCKERHUB_USERNAME }}/simple-sems-dashboard:latest
-        docker push ${{ secrets.DOCKERHUB_USERNAME }}/simple-sems-dashboard:$TAG
+          --tag ${{ vars.DOCKERHUB_USERNAME }}/simple-sems-dashboard:$GITHUB_SHA
+        docker push ${{ vars.DOCKERHUB_USERNAME }}/simple-sems-dashboard:latest
+        docker push ${{ vars.DOCKERHUB_USERNAME }}/simple-sems-dashboard:$GITHUB_SHA  
