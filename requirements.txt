@@ -1,0 +1,5 @@
+fastapi>=0.95
+uvicorn[standard]>=0.22
+aiohttp>=3.8
+python-dotenv>=1.0
+sems_portal_api>=0.0.1

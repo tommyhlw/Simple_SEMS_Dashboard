@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Power Curve (kW) — PV & Meter & House</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 24px; background:#fafafa; }
+      .container { max-width:1000px; margin:0 auto; padding:6px; }
+      #chart-container { width: 100%; }
+      #current-values{max-width:1000px;margin:12px auto 0}
+      .metric .icon{width:28px;text-align:center}
+      button{background:#0366d6;color:#fff;border:none;padding:6px 10px;border-radius:6px;cursor:pointer}
+      button.secondary{background:#6c757d}
+      @media (max-width:700px){
+        body{margin:12px}
+        .metric{width:100%}
+        .metric div{display:block}
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <h2 id="page-title" style="margin:0">Power Curve (kW) — PV • Meter • House — <span id="title-time">—</span></h2>
+        <div style="margin-left:auto;display:flex;gap:8px">
+          <button id="refresh-btn">Refresh</button>
+          <button id="export-csv">Export CSV</button>
+        </div>
+      </div>
+    </div>
+    <div id="current-values" style="margin-top:12px; display:flex; gap:12px; align-items:center;">
+      <div class="metric" id="m-pv" style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid #eee;border-radius:6px">
+        <div class="icon" style="font-size:20px">🌞</div>
+        <div><div style="font-size:12px;color:#666">PV</div><div id="val-pv" style="font-weight:600">— kW</div></div>
+      </div>
+      <div class="metric" id="m-meter" style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid #eee;border-radius:6px">
+        <div class="icon" style="font-size:20px">🏭</div>
+        <div><div style="font-size:12px;color:#666">Meter</div><div id="val-meter" style="font-weight:600">— kW</div></div>
+      </div>
+      <div class="metric" id="m-house" style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid #eee;border-radius:6px">
+        <div class="icon" style="font-size:20px">🏠</div>
+        <div><div style="font-size:12px;color:#666">House</div><div id="val-house" style="font-weight:600">— kW</div></div>
+      </div>
+      <div style="margin-left:auto;color:#666;font-size:13px" id="val-time">—</div>
+    </div>
+    <div class="container">
+      <div id="chart-container">
+        <canvas id="pvChart"></canvas>
+      </div>
+    </div>
+    
+
+    <script>
+      async function fetchWithRetry(url, delays=[500,1000,2000]) {
+        for (let i = 0; i < delays.length; i++) {
+          try {
+            const r = await fetch(url);
+            if (r.ok) return await r.json();
+            // retry on 404 (not yet available), throw on other errors
+            if (r.status !== 404) {
+              const txt = await r.text();
+              throw new Error(txt || ('HTTP ' + r.status));
+            }
+          } catch (e) {
+            if (i === delays.length - 1) {
+              console.warn('fetchWithRetry final failure', url, e);
+              return null;
+            }
+            // otherwise wait and retry
+          }
+          await new Promise(res => setTimeout(res, delays[i]));
+        }
+        return null;
+      }
+      async function loadBoth() {
+        const base = window.location.origin;
+        const urls = [base + '/api/pc_pv', base + '/api/pc_meter', base + '/api/pc_house'];
+        console.log('fetching', urls);
+
+        // fetch pv (required)
+        const r1 = await fetch(urls[0]);
+        if (!r1.ok) {
+          const txt = await r1.text();
+          console.error('PCurve_Power_PV fetch failed', r1.status, txt);
+          throw new Error('PCurve_Power_PV fetch failed: ' + r1.status + ' ' + txt);
+        }
+        const j1 = await r1.json();
+
+        // fetch meter with retry/backoff (tolerate final null)
+        const j2 = await fetchWithRetry(urls[1], [500, 1000, 2000]);
+        if (!j2) console.warn('PCurve_Power_Meter unavailable after retries');
+        // fetch house (best-effort)
+        let j3 = null;
+        try {
+          const r3 = await fetch(urls[2]);
+          if (r3.ok) j3 = await r3.json();
+          else console.warn('PCurve_Power_House fetch returned', r3.status);
+        } catch (e) {
+          console.warn('PCurve_Power_House fetch failed', e);
+        }
+
+        return { pc_pv: j1, pc_meter: j2, pc_house: j3 };
+      }
+
+      function createChart(ctxEl, labels, datasets, opts={}) {
+        const ctx = ctxEl.getContext('2d');
+        // ensure datasets have no visible points and are slightly smoothed
+        datasets.forEach(d => { d.pointRadius = 0; d.tension = (d.tension === undefined) ? 0.32 : d.tension; d.pointHoverRadius = d.pointHoverRadius || 4 });
+        return new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels: labels,
+            datasets: datasets
+          },
+          options: Object.assign({
+            responsive: true,
+            plugins: { legend: { position: 'top' } },
+            elements: { point: { radius: 0 } },
+            scales: {
+              y: { title: { display: true, text: opts.yLabel || 'kW' } },
+              x: { title: { display: true, text: 'Time' } }
+            }
+          }, opts.options || {})
+        });
+      }
+
+      (async () => {
+      let chart = null;
+      let table, tbody;
+      let lastSeries = { labels: [], pv: [], meter: [], house: [] };
+      let showAll = false;
+      let toggleBtn = null;
+
+      function buildTable(labels, pvData, meterData, houseData) {
+        lastSeries = { labels: labels.slice(), pv: pvData.slice(), meter: meterData.slice(), house: houseData.slice() };
+        if (!table) {
+          // controls above table
+          const controls = document.createElement('div');
+          controls.style.display = 'flex'; controls.style.justifyContent = 'flex-end'; controls.style.maxWidth = '900px'; controls.style.margin = '8px auto 0';
+          toggleBtn = document.createElement('button'); toggleBtn.className = 'secondary'; toggleBtn.textContent = 'Show all'; toggleBtn.style.marginRight = '8px';
+          toggleBtn.addEventListener('click', () => { showAll = !showAll; toggleBtn.textContent = showAll ? 'Show last 10' : 'Show all'; buildTable(lastSeries.labels, lastSeries.pv, lastSeries.meter, lastSeries.house); });
+          controls.appendChild(toggleBtn);
+          document.body.appendChild(controls);
+
+          table = document.createElement('table');
+          table.style.borderCollapse = 'collapse';
+          table.style.marginTop = '6px';
+          table.style.maxWidth = '900px';
+          table.innerHTML = '<thead><tr><th style="border:1px solid #ccc;padding:6px">Time</th><th style="border:1px solid #ccc;padding:6px">PV (kW)</th><th style="border:1px solid #ccc;padding:6px">Meter (kW)</th><th style="border:1px solid #ccc;padding:6px">House (kW)</th></tr></thead>';
+          tbody = document.createElement('tbody');
+          table.appendChild(tbody);
+          document.body.appendChild(table);
+        }
+        // clear tbody
+        tbody.innerHTML = '';
+        const start = showAll ? 0 : Math.max(0, labels.length - 10);
+        for (let i = start; i < labels.length; i++) {
+          const tr = document.createElement('tr');
+          const t1 = document.createElement('td'); t1.style.border='1px solid #eee'; t1.style.padding='6px'; t1.textContent = labels[i];
+          const t2 = document.createElement('td'); t2.style.border='1px solid #eee'; t2.style.padding='6px'; t2.textContent = (pvData[i] != null) ? pvData[i] : '';
+          const t3 = document.createElement('td'); t3.style.border='1px solid #eee'; t3.style.padding='6px'; t3.textContent = (meterData[i] != null) ? meterData[i] : '';
+          const t4 = document.createElement('td'); t4.style.border='1px solid #eee'; t4.style.padding='6px'; t4.textContent = (houseData[i] != null) ? houseData[i] : '';
+          tr.appendChild(t1); tr.appendChild(t2); tr.appendChild(t3); tr.appendChild(t4);
+          tbody.appendChild(tr);
+        }
+      }
+
+      async function refreshAndRender() {
+        try {
+          const json = await loadBoth();
+          const labels = json.pc_pv.labels || [];
+          const pvData = json.pc_pv.data || [];
+          const meterData = (json.pc_meter && Array.isArray(json.pc_meter.data)) ? json.pc_meter.data : new Array(labels.length).fill(null);
+          const houseData = (json.pc_house && Array.isArray(json.pc_house.data)) ? json.pc_house.data : new Array(labels.length).fill(null);
+
+          if (!chart) {
+            const ds = [
+              { label: 'PCurve Power PV (kW)', data: pvData, borderColor: '#03bbd6', backgroundColor: 'rgba(3,187,214,0.1)', fill: true },
+              { label: 'PCurve Power Meter (kW)', data: meterData, borderColor: '#fbb03b', backgroundColor: 'rgba(251,176,59,0.1)', fill: false },
+              { label: 'PCurve Power House (kW)', data: houseData, borderColor: '#2ca02c', backgroundColor: 'rgba(44,160,44,0.08)', fill: false }
+            ];
+            chart = createChart(document.getElementById('pvChart'), labels, ds, { yLabel: 'kW' });
+          } else {
+            chart.data.labels = labels;
+            // update data and preserve visual settings
+            const sets = [pvData, meterData, houseData];
+            for (let i = 0; i < sets.length; i++) {
+              if (!chart.data.datasets[i]) chart.data.datasets[i] = {};
+              chart.data.datasets[i].data = sets[i];
+              chart.data.datasets[i].pointRadius = 0;
+              chart.data.datasets[i].tension = 0.32;
+              chart.data.datasets[i].pointHoverRadius = 4;
+            }
+            chart.update();
+          }
+
+          buildTable(labels, pvData, meterData, houseData);
+          renderCurrentFromSeries(labels, pvData, meterData, houseData);
+        } catch (e) {
+          console.warn('refresh failed', e);
+        }
+      }
+
+      function renderCurrentFromSeries(labels, pvData, meterData, houseData) {
+        if (!labels || labels.length === 0) return;
+        const last = labels.length - 1;
+        const time = labels[last];
+        const pv = (pvData && pvData.length > last) ? pvData[last] : null;
+        const meter = (meterData && meterData.length > last) ? meterData[last] : null;
+        const house = (houseData && houseData.length > last) ? houseData[last] : null;
+
+        document.getElementById('val-pv').textContent = (pv != null) ? pv + ' kW' : '—';
+        document.getElementById('val-meter').textContent = (meter != null) ? meter + ' kW' : '—';
+        document.getElementById('val-house').textContent = (house != null) ? house + ' kW' : '—';
+        document.getElementById('val-time').textContent = time || '—';
+      }
+
+      // hook buttons
+      const refreshBtn = document.getElementById('refresh-btn');
+      if (refreshBtn) refreshBtn.addEventListener('click', () => refreshAndRender());
+      const exportBtn = document.getElementById('export-csv');
+      if (exportBtn) exportBtn.addEventListener('click', () => exportCSV());
+
+      // initial load
+      await refreshAndRender();
+
+      // update title time every second
+      setInterval(() => { const el = document.getElementById('title-time'); if (el) el.textContent = new Date().toLocaleString(); }, 1000);
+
+      // refresh every 5 minutes
+      setInterval(refreshAndRender, 5 * 60 * 1000);
+
+      // export CSV (all rows)
+      function exportCSV() {
+        const cols = ['Time','PV (kW)','Meter (kW)','House (kW)'];
+        const rows = [cols];
+        const { labels, pv, meter, house } = lastSeries;
+        for (let i = 0; i < labels.length; i++) rows.push([labels[i] || '', pv[i] != null ? pv[i] : '', meter[i] != null ? meter[i] : '', house[i] != null ? house[i] : '']);
+        const csv = rows.map(r => r.map(c => '"' + String(c).replace(/"/g,'""') + '"').join(',')).join('\n');
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.href = url; a.download = 'pc_values.csv'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+      }
+      })();
+    </script>
+  </body>
+</html>
