@@ -110,8 +110,8 @@ async def get_pc_pv():
 
             xy = pv_series.get('xy', [])
             labels = [pt.get('x') for pt in xy]
-            # convert W to kW
-            data_vals = [round((pt.get('y') or 0) / 1000.0, 3) for pt in xy]
+            # convert W to kW and round to 1 decimal, treat 0 as "" for better chart display
+            data_vals = ["" if (val := pt.get('y')) == 0 else (val := str(round(pt.get('y') / 1000.0, 1))) for pt in xy]
             logger.info("Returning %d data points", len(data_vals))
             
             return {"labels": labels, "data": data_vals}
@@ -156,7 +156,9 @@ async def get_pc_meter():
                 return {"labels": labels, "data": data_vals}
             xy = pv_series.get('xy', [])
             labels = [pt.get('x') for pt in xy]
-            data_vals = [round((pt.get('y') or 0) / 1000.0, 3) for pt in xy]
+            data_vals = [round((pt.get('y') or 0) / 1000.0, 1) for pt in xy]
+            #data_vals = ["" if (val := pt.get('y')) == 0 else (None if val is None else str(round(val / 1000.0, 1))) for pt in xy]
+            
             return {"labels": labels, "data": data_vals}
         except HTTPException:
             raise
@@ -199,9 +201,12 @@ async def get_pc_house():
             else:
                 if mv > 0 and pvv == 0:
                     # if meter shows production but PV is zero, treat house as 0
-                    house.append(0)
+                    house.append(None)
                 else:
-                    house.append(round(pvv - mv, 3))
+                    try:
+                        house.append(str(round(pvv - mv, 1)))
+                    except Exception:
+                        house.append(None)
 
         return {"labels": pv_labels, "data": house}
     except HTTPException:

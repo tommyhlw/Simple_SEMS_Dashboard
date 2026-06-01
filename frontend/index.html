@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Power Curve (kW) — PV & Meter & House</title>
+    <title>Power Curve</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
       body { font-family: Arial, sans-serif; margin: 24px; background:#fafafa; }
@@ -25,7 +25,8 @@
   <body>
     <div class="container">
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-        <h2 id="page-title" style="margin:0">Power Curve (kW) — PV • Meter • House — <span id="title-time">—</span></h2>
+        <h2 id="page-title" style="margin:0">Power Curve</h2>
+        <span id="title-time">—</span>
         <div style="margin-left:auto;display:flex;gap:8px">
           <button id="refresh-btn">Refresh</button>
           <button id="export-csv">Export CSV</button>
@@ -39,13 +40,22 @@
       </div>
       <div class="metric" id="m-meter" style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid #eee;border-radius:6px">
         <div class="icon" style="font-size:20px">🏭</div>
-        <div><div style="font-size:12px;color:#666">Meter</div><div id="val-meter" style="font-weight:600">— kW</div></div>
+        <div>
+          <div style="font-size:12px;color:#666">Zähler</div>
+          <div id="val-meter" style="font-weight:600">— kW</div>
+          <div id="meter-status" style="font-size:12px;color:#666;margin-top:4px">😕 —</div>
+        </div>
       </div>
       <div class="metric" id="m-house" style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid #eee;border-radius:6px">
         <div class="icon" style="font-size:20px">🏠</div>
-        <div><div style="font-size:12px;color:#666">House</div><div id="val-house" style="font-weight:600">— kW</div></div>
+        <div><div style="font-size:12px;color:#666">Haus</div><div id="val-house" style="font-weight:600">— kW</div></div>
       </div>
       <div style="margin-left:auto;color:#666;font-size:13px" id="val-time">—</div>
+    </div>
+    <div class="container">
+      <div id="text-chart-container" style="display:none">
+         <span>negativer Zähler Wert sad smiley, postiver wert happy smiley</span>
+      </div>
     </div>
     <div class="container">
       <div id="chart-container">
@@ -78,7 +88,7 @@
       }
       async function loadBoth() {
         const base = window.location.origin;
-        const urls = [base + '/api/pc_pv', base + '/api/pc_meter', base + '/api/pc_house'];
+        const urls = [base + '/api/pc_pv', base + '/api/pc_meter'];
         console.log('fetching', urls);
 
         // fetch pv (required)
@@ -93,17 +103,11 @@
         // fetch meter with retry/backoff (tolerate final null)
         const j2 = await fetchWithRetry(urls[1], [500, 1000, 2000]);
         if (!j2) console.warn('PCurve_Power_Meter unavailable after retries');
-        // fetch house (best-effort)
-        let j3 = null;
-        try {
-          const r3 = await fetch(urls[2]);
-          if (r3.ok) j3 = await r3.json();
-          else console.warn('PCurve_Power_House fetch returned', r3.status);
-        } catch (e) {
-          console.warn('PCurve_Power_House fetch failed', e);
-        }
+        // we no longer fetch /api/pc_house from server; compute client-side
+        // also attempt to fetch the latest current values endpoint as fallback
+        let j_now = null;
 
-        return { pc_pv: j1, pc_meter: j2, pc_house: j3 };
+        return { pc_pv: j1, pc_meter: j2, pc_house: null};
       }
 
       function createChart(ctxEl, labels, datasets, opts={}) {
@@ -182,15 +186,41 @@
         try {
           const json = await loadBoth();
           const labels = json.pc_pv.labels || [];
-          const pvData = json.pc_pv.data || [];
-          const meterData = (json.pc_meter && Array.isArray(json.pc_meter.data)) ? json.pc_meter.data : new Array(labels.length).fill(null);
-          const houseData = (json.pc_house && Array.isArray(json.pc_house.data)) ? json.pc_house.data : new Array(labels.length).fill(null);
+          let pvData = json.pc_pv.data || [];
+          let meterData = (json.pc_meter && Array.isArray(json.pc_meter.data)) ? json.pc_meter.data : new Array(labels.length).fill(null);
+          // compute house client-side: pv - meter, negative values shown as empty (null)
+          let houseData = new Array(labels.length).fill(null);
+          const now = json.pc_now || null;
+
+          // If series are empty but /api/pc_now provides current values, use it as a single-point series
+          if ((labels.length === 0 || pvData.length === 0) && now && now.Uhrzeit) {
+            const t = now.Uhrzeit;
+            const p = (now['PV-Strom'] !== undefined) ? now['PV-Strom'] : null;
+            const m = (now['Netzeinspeisung/-Bezug'] !== undefined) ? now['Netzeinspeisung/-Bezug'] : null;
+            labels.splice(0, labels.length, t);
+            pvData = [p];
+            meterData = [m];
+            houseData = [ (p != null && m != null && (p - m) >= 0) ? Math.round((p - m) * 1000) / 1000 : null ];
+          } else {
+            // compute from series (align by index of pv labels)
+            for (let i = 0; i < labels.length; i++) {
+              const p = (pvData && i < pvData.length) ? pvData[i] : null;
+              const m = (meterData && i < meterData.length) ? meterData[i] : null;
+              if (p == null || m == null) {
+                houseData[i] = null;
+              } else {
+                const h = Math.round((p - m) * 1000) / 1000;
+                houseData[i] = (h < 0) ? null : h;
+              }
+            }
+          }
 
           if (!chart) {
             const ds = [
-              { label: 'PCurve Power PV (kW)', data: pvData, borderColor: '#03bbd6', backgroundColor: 'rgba(3,187,214,0.1)', fill: true },
-              { label: 'PCurve Power Meter (kW)', data: meterData, borderColor: '#fbb03b', backgroundColor: 'rgba(251,176,59,0.1)', fill: false },
-              { label: 'PCurve Power House (kW)', data: houseData, borderColor: '#2ca02c', backgroundColor: 'rgba(44,160,44,0.08)', fill: false }
+              // swapped colors: PV uses meter color, Meter uses pv color
+              { label: 'PV (kW)', data: pvData, borderColor: '#fbb03b', backgroundColor: 'rgba(251,176,59,0.1)', fill: true },
+              { label: 'Zähler (kW)', data: meterData, borderColor: '#03bbd6', backgroundColor: 'rgba(3,187,214,0.1)', fill: false },
+              { label: 'Haus (kW)', data: houseData, borderColor: '#2ca02c', backgroundColor: 'rgba(44,160,44,0.08)', fill: false }
             ];
             chart = createChart(document.getElementById('pvChart'), labels, ds, { yLabel: 'kW', aspectRatio: 4/3, legendFontSize: 11, legendBoxWidth: 10 });
           } else {
@@ -235,6 +265,22 @@
           const mMeter = document.getElementById('m-meter'); if (mMeter) { mMeter.style.borderLeftColor = meterCol; document.getElementById('val-meter').style.color = meterCol; }
           const mHouse = document.getElementById('m-house'); if (mHouse) { mHouse.style.borderLeftColor = houseCol; document.getElementById('val-house').style.color = houseCol; }
         } catch (ee) { /* ignore */ }
+        // set meter status: positive = Netzeinspeisung (sunglasses), negative = Netzbezug (sad), zero/null = confused
+        try {
+          const statusEl = document.getElementById('meter-status');
+          if (statusEl) {
+            if (meter == null || meter === 0) {
+              statusEl.textContent = '😕 Keine Einspeisung/Bezug';
+              statusEl.style.color = '#6c757d';
+            } else if (meter > 0) {
+              statusEl.textContent = '😎 Netzeinspeisung';
+              statusEl.style.color = '#198754';
+            } else {
+              statusEl.textContent = '😢 Netzbezug';
+              statusEl.style.color = '#d9534f';
+            }
+          }
+        } catch (e2) { /* ignore */ }
       }
 
       // hook buttons
