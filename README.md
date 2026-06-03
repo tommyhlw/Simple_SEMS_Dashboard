@@ -57,13 +57,15 @@ Verfügbare API-Endpunkte
 - `GET /` — liefert das Frontend (`frontend/index.html`).
 - `GET /api/pc_pv` — PCurve_Power_PV als JSON: `{ labels: [...], data: [...] }` (kW).
 - `GET /api/pc_meter` — PCurve_Power_Meter als JSON (kW). Falls Serie fehlt, wird eine leere/null-gefüllte Serie zurückgegeben.
-- `GET /api/pc_house` — PCurve_Power_House (PV − Meter) als JSON (kW).
-- `GET /api/pc_current` — aktuellster Datenpunkt: `{ label: <zeit>, pv: <kW|null>, meter: <kW|null>, house: <kW|null> }`.
+- `GET /api/pc_house` — PCurve_Power_House (PV − Meter) als JSON (kW). (Wird auch clientseitig berechnet, falls nicht verfügbar.)
+- `GET /api/pc_all` — Liefert alle drei Serien als Objekt: `{ pv: {labels,data}, meter: {labels,data}, house: {labels,data} }`. Das Frontend verwendet standardmäßig diesen Endpunkt.
+- `GET /api/pc_now` — aktuellster Datenpunkt: `{ Uhrzeit: <x>, "PV-Strom": <kW|null>, "Netzeinspeisung/-Bezug": <kW|null>, "Haus-Strom": <kW|null> }`.
 
 Frontend-Funktionen
 -------------------
-- Chart: glatte Linien (ohne Punkte), zeigt PV / Meter / House in kW.
+- Chart: glatte Linien (ohne Punkte), zeigt PV / Meter / House in kW. Das Frontend tauscht PV/Meter Farben und zeigt House als eigene Kurve.
 - Aktuelle Werteleiste über dem Chart mit Icons: 🌞 PV, 🏭 Meter, 🏠 House; rechts laufende Uhr.
+- Meter-Status: unter dem Zählerwert erscheint ein Indikator mit Emoji: `😎 Netzeinspeisung` (positiv), `😢 Netzbezug` (negativ), `😕 Keine Einspeisung/Bezug` (null/0).
 - Automatische Aktualisierung: initialer Load + automatisches Refresh alle 5 Minuten.
 - Buttons: `Refresh` (sofortiger Reload), `Export CSV` (download aller Zeitreihen als CSV).
 - Tabelle: standardmäßig die letzten 10 Einträge, ausklappbar (`Show all`) um alle Werte anzuzeigen.
@@ -76,7 +78,8 @@ Datenformat (Beispiel für einzelne Zeile im CSV / Tabelle)
 
 Hinweise
 --------
-- Setze `SEMS_USER` und `SEMS_PASSWORD` korrekt, damit der Server die SEMS-API erreichen kann.
+- Setze `SEMS_USER` und `SEMS_PASSWORD` korrekt, damit der Server die SEMS-API erreichen kann. Du kannst eine `.env`-Datei nutzen; `start_server.sh` lädt diese automatisch, falls vorhanden.
+- Das Frontend bevorzugt `/api/pc_all`; wenn `house` in der Antwort fehlt, berechnet das Frontend `house = pv - meter` und zeigt negative Werte als leer an (Haus kann nicht negativ sein).
 - Bei Problemen: Logs prüfen (`docker compose logs -f` oder `./start_server.sh` Ausgaben).
 - Falls du SVG-Icons, deutsche Beschriftungen oder eine Prometheus-/Influx-Export-Option möchtest, sag Bescheid — ich kann das ergänzen.
 

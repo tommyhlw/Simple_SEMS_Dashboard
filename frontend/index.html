@@ -26,11 +26,12 @@
     <div class="container">
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
         <h2 id="page-title" style="margin:0">Power Curve</h2>
-        <span id="title-time">—</span>
+        <label for="todayDate">Select Date:</label>
+        <input type="date" id="todayDate">
         <div style="margin-left:auto;display:flex;gap:8px">
           <button id="refresh-btn">Refresh</button>
           <button id="export-csv">Export CSV</button>
-        </div>
+          </div>
       </div>
     </div>
     <div id="current-values" style="margin-top:12px; display:flex; gap:12px; align-items:center;">
@@ -65,49 +66,23 @@
     
 
     <script>
-      async function fetchWithRetry(url, delays=[500,1000,2000]) {
-        for (let i = 0; i < delays.length; i++) {
-          try {
-            const r = await fetch(url);
-            if (r.ok) return await r.json();
-            // retry on 404 (not yet available), throw on other errors
-            if (r.status !== 404) {
-              const txt = await r.text();
-              throw new Error(txt || ('HTTP ' + r.status));
-            }
-          } catch (e) {
-            if (i === delays.length - 1) {
-              console.warn('fetchWithRetry final failure', url, e);
-              return null;
-            }
-            // otherwise wait and retry
-          }
-          await new Promise(res => setTimeout(res, delays[i]));
-        }
-        return null;
-      }
-      async function loadBoth() {
-        const base = window.location.origin;
-        const urls = [base + '/api/pc_pv', base + '/api/pc_meter'];
-        console.log('fetching', urls);
 
+      async function loadPC(date = today) {
+        const base = window.location.origin;
+        const url = base + '/api/pc_all?target_date=' + date;
+        //  console.log('fetching', url);
+        // example call for date   /api/pc_all?target_date=2026-05-03
+        //console.log(url);
         // fetch pv (required)
-        const r1 = await fetch(urls[0]);
+        const r1 = await fetch(url);
         if (!r1.ok) {
           const txt = await r1.text();
-          console.error('PCurve_Power_PV fetch failed', r1.status, txt);
-          throw new Error('PCurve_Power_PV fetch failed: ' + r1.status + ' ' + txt);
+          console.error('PCurve_Power fetch failed', r1.status, txt);
+          throw new Error('PCurve_Power fetch failed: ' + r1.status + ' ' + txt);
         }
-        const j1 = await r1.json();
-
-        // fetch meter with retry/backoff (tolerate final null)
-        const j2 = await fetchWithRetry(urls[1], [500, 1000, 2000]);
-        if (!j2) console.warn('PCurve_Power_Meter unavailable after retries');
-        // we no longer fetch /api/pc_house from server; compute client-side
-        // also attempt to fetch the latest current values endpoint as fallback
-        let j_now = null;
-
-        return { pc_pv: j1, pc_meter: j2, pc_house: null};
+        const j1 = await r1.json();  
+        // console.log('PCurve_Power data', j1);
+        return { j1 };
       }
 
       function createChart(ctxEl, labels, datasets, opts={}) {
@@ -182,14 +157,18 @@
         }
       }
 
-      async function refreshAndRender() {
+      async function refreshAndRender(date) {
         try {
-          const json = await loadBoth();
-          const labels = json.pc_pv.labels || [];
-          let pvData = json.pc_pv.data || [];
-          let meterData = (json.pc_meter && Array.isArray(json.pc_meter.data)) ? json.pc_meter.data : new Array(labels.length).fill(null);
+          const json = await loadPC(date);
+          let labels = json.j1.pv.labels || [];      
+          let pvData = json.j1.pv.data || [];     
+          let meterData = json.j1.meter.data || [];
+          let houseData = json.j1.house.data || [];    
+          //console.log('loaded data', { pvData, meterData, houseData, json });
+          // console.log('current from series', { pv: (pvData.length > 0) ? pvData[pvData.length - 1] : null, meter: (meterData.length > 0) ? meterData[meterData.length - 1] : null, house: (houseData.length > 0) ? houseData[houseData.length - 1] : null });
+          //let meterData = (json.pc_meter && Array.isArray(json.pc_meter.data)) ? json.pc_meter.data : new Array(labels.length).fill(null);
           // compute house client-side: pv - meter, negative values shown as empty (null)
-          let houseData = new Array(labels.length).fill(null);
+          //let houseData = new Array(labels.length).fill(null);
           const now = json.pc_now || null;
 
           // If series are empty but /api/pc_now provides current values, use it as a single-point series
@@ -283,14 +262,37 @@
         } catch (e2) { /* ignore */ }
       }
 
+      // 1. Define the input element variable first
+      const dateInput = document.getElementById('todayDate');
+      // 2. Get today's date properly as a string (YYYY-MM-DD)
+      const today = new Date().toISOString().split('T')[0];
+      // 3. Set the input's default value to today's date
+      dateInput.value = today;
+      // 4. Add the change event listener
+      dateInput.addEventListener('change', (event) => {
+        const selectedDate = event.target.value;        
+        // 5. Call the function (Ensure this function exists in your script!)
+        // console.log('Selected date:', selectedDate);
+        refreshAndRender(dateInput.value)// trigger refresh for the selected date
+         // Optionally, you can directly call the function if it accepts a date parameter:
+          .then(data => {
+            console.log('Data for selected date', data);
+            // Add your chart/table update logic here
+          })
+          .catch(err => {
+            console.error('Error loading data for selected date', err);
+          });
+      });
+      
       // hook buttons
       const refreshBtn = document.getElementById('refresh-btn');
-      if (refreshBtn) refreshBtn.addEventListener('click', () => refreshAndRender());
+      if (refreshBtn) refreshBtn.addEventListener('click', () => refreshAndRender(today));
+      if (refreshBtn) refreshBtn.addEventListener('click', () => dateInput.value = today);
       const exportBtn = document.getElementById('export-csv');
       if (exportBtn) exportBtn.addEventListener('click', () => exportCSV());
 
       // initial load
-      await refreshAndRender();
+      await refreshAndRender(today);
 
       // update title time every second
       setInterval(() => { const el = document.getElementById('title-time'); if (el) el.textContent = new Date().toLocaleString(); }, 1000);
@@ -310,6 +312,7 @@
         const a = document.createElement('a'); a.href = url; a.download = 'pc_values.csv'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
       }
       })();
+
     </script>
   </body>
 </html>
