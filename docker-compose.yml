@@ -1,16 +1,9 @@
-version: '3.8'
-
 services:
   sems:
-    build: .
-    image: sems-viewer:latest
+    image: tommyhlw/simple-sems-dashboard:latest
     env_file:
       - .env
-    ports:
-      - "8080:80"
     restart: unless-stopped
-    volumes:
-      - ./frontend:/app/frontend:ro
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:80/ || exit 1"]
       interval: 30s

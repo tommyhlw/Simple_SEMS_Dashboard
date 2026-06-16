@@ -85,6 +85,22 @@ async def do_login(session: aiohttp.ClientSession):
         
         return data, header_token, _cached_power_station_id
 
+@app.get("/api/pc_now")
+async def get_pc_now(target_date: Optional[datetime_date] = Query(
+        default=datetime.now().date())
+    ):
+    """Return current PCurve_Power series as kW for Chart.js.
+
+    Response: {"date": date.strftime("%Y-%m-%d"), "pv": {"labels": [pv_labels], "data": [pv_data]}, "meter": {"labels": [meter_labels], "data": [meter_data]}, "house": {"labels": [house_labels], "data": [house_data]}}}
+    """
+    date=target_date
+    get_pc_all_response = await get_pc_all(target_date=date)
+    pv_now = get_pc_all_response["pv"]["data"][-1] if get_pc_all_response["pv"]["data"] else None
+    house_now = get_pc_all_response["house"]["data"][-1] if get_pc_all_response["house"]["data"] else None
+    meter_now = get_pc_all_response["meter"]["data"][-1] if get_pc_all_response["meter"]["data"] else None
+    label = get_pc_all_response["pv"]["labels"][-1] if get_pc_all_response["pv"]["labels"] else None
+    get_pc_now = {"date": get_pc_all_response["date"], "pv": {"labels": [label], "data": [pv_now]}, "meter": {"labels": [label], "data": [meter_now]}, "house": {"labels": [label], "data": [house_now]}}
+    return get_pc_now
 
 @app.get("/api/pc_all")
 async def get_pc_all(target_date: Optional[datetime_date] = Query(
@@ -95,7 +111,7 @@ async def get_pc_all(target_date: Optional[datetime_date] = Query(
 
     Response: {"date": date.strftime("%Y-%m-%d"), "pv": {"labels": [pv_labels], "data": [pv_data]}, "meter": {"labels": [meter_labels], "data": [meter_data]}, "house": {"labels": [house_labels], "data": [house_data]}}}
     """
-    date=target_date 
+    date=target_date
     sems_portal_api.set_region('eu')
     async with aiohttp.ClientSession() as session:
         try:
@@ -133,12 +149,14 @@ async def get_pc_all(target_date: Optional[datetime_date] = Query(
                     pv = 0.0
                 if meter == "":
                     meter = 0.0                
-                house_data.append(str(round(float(pv) - float(meter), 1)))  
+                house_data.append(str(round(float(pv) - float(meter), 1))) 
 
-            return {"date": date.strftime("%Y-%m-%d"), "pv": {"labels": pv_labels, "data": pv_data}, "meter": {"labels": meter_labels, "data": meter_data}, "house": {"labels": house_labels, "data": house_data}}
+            plant_statistics = "" 
+            
+            return {"date": date.strftime("%Y-%m-%d"), "pv": {"labels": pv_labels, "data": pv_data}, "meter": {"labels": meter_labels, "data": meter_data}, "house": {"labels": house_labels, "data": house_data}, "plant_statistics": plant_statistics}
 
         except HTTPException:
             raise
         except Exception as exc:
             logger.exception("Error fetching PCurve_Power_PV")
-            raise HTTPException(status_code=500, detail=str(exc))   
+            raise HTTPException(status_code=500, detail=str(exc)) 

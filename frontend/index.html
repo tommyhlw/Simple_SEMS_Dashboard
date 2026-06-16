@@ -62,18 +62,13 @@
       <div id="chart-container">
         <canvas id="pvChart"></canvas>
       </div>
-    </div>
-    
+    </div>  
 
     <script>
 
       async function loadPC(date = today) {
         const base = window.location.origin;
         const url = base + '/api/pc_all?target_date=' + date;
-        //  console.log('fetching', url);
-        // example call for date   /api/pc_all?target_date=2026-05-03
-        //console.log(url);
-        // fetch pv (required)
         const r1 = await fetch(url);
         if (!r1.ok) {
           const txt = await r1.text();
@@ -164,11 +159,6 @@
           let pvData = json.j1.pv.data || [];     
           let meterData = json.j1.meter.data || [];
           let houseData = json.j1.house.data || [];    
-          //console.log('loaded data', { pvData, meterData, houseData, json });
-          // console.log('current from series', { pv: (pvData.length > 0) ? pvData[pvData.length - 1] : null, meter: (meterData.length > 0) ? meterData[meterData.length - 1] : null, house: (houseData.length > 0) ? houseData[houseData.length - 1] : null });
-          //let meterData = (json.pc_meter && Array.isArray(json.pc_meter.data)) ? json.pc_meter.data : new Array(labels.length).fill(null);
-          // compute house client-side: pv - meter, negative values shown as empty (null)
-          //let houseData = new Array(labels.length).fill(null);
           const now = json.pc_now || null;
 
           // If series are empty but /api/pc_now provides current values, use it as a single-point series
