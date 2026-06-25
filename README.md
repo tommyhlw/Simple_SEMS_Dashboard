@@ -1,12 +1,13 @@
-Projekt: SEMS inverter viewer
+# SEMS Inverter Viewer
 
-Kurz
------
-Dieses Projekt liest Leistungsreihen von der SEMS-API und stellt sie per `FastAPI` als Zeitreihen bereit. Eine einfache Single-Page-Frontend zeigt die PCurve-Serien für PV, Meter und House (PV − Meter) an, inklusive Live-Werte, Chart und CSV-Export.
+## Summary
+This project reads power series from the SEMS API and exposes them via `FastAPI` as time series.
+A simple single-page frontend displays the PCurve series for PV, Meter and House (PV − Meter),
+including live values, a chart, and CSV export.
 
-Lokal starten (virtuelle Umgebung empfohlen)
-------------------------------------------------
-1. Virtuelle Umgebung anlegen und Abhängigkeiten installieren:
+## Local Setup (virtual environment recommended)
+
+1. Create a virtual environment and install dependencies:
 
 ```bash
 python -m venv .venv
@@ -14,76 +15,90 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-2. Umgebungsvariablen setzen (oder `.env` verwenden):
+2. Set environment variables (or use a `.env` file):
 
 ```bash
-export SEMS_USER="dein_benutzer"
-export SEMS_PASSWORD="dein_passwort"
+export SEMS_USER="your_username"
+export SEMS_PASSWORD="your_password"
 ```
 
-3a. Server direkt mit Uvicorn starten (Entwicklung):
+3a. Start the server directly with Uvicorn (development):
 
 ```bash
 uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-3b. Alternativ: bequemes Start-Skript verwenden (sorgt für unbuffered output):
+3b. Alternatively, use the convenience start script (ensures unbuffered output):
 
 ```bash
 ./start_server.sh .env 8000
 ```
 
-Web-UI öffnen: http://localhost:8000
+Open the Web UI at: http://localhost:8000
 
-Docker / Docker Compose
-------------------------
-Empfohlen: `docker compose` mit einer `.env`-Datei oder `--env-file` nutzen.
+## Docker / Docker Compose
 
-Build & Start (im Projektordner):
+Recommended: use `docker compose` with a `.env` file or `--env-file`.
+
+Build & start (from the project folder):
 
 ```bash
 docker compose build
 docker compose up -d
 ```
 
-Logs ansehen:
+View logs:
 
 ```bash
 docker compose logs -f
 ```
 
-Verfügbare API-Endpunkte
-------------------------
-- `GET /` — liefert das Frontend (`frontend/index.html`).
-- `GET /api/pc_pv` — PCurve_Power_PV als JSON: `{ labels: [...], data: [...] }` (kW).
-- `GET /api/pc_meter` — PCurve_Power_Meter als JSON (kW). Falls Serie fehlt, wird eine leere/null-gefüllte Serie zurückgegeben.
-- `GET /api/pc_house` — PCurve_Power_House (PV − Meter) als JSON (kW). (Wird auch clientseitig berechnet, falls nicht verfügbar.)
-- `GET /api/pc_all` — Liefert alle drei Serien als Objekt: `{ pv: {labels,data}, meter: {labels,data}, house: {labels,data} }`. Das Frontend verwendet standardmäßig diesen Endpunkt.
-- `GET /api/pc_now` — aktuellster Datenpunkt: `{ Uhrzeit: <x>, "PV-Strom": <kW|null>, "Netzeinspeisung/-Bezug": <kW|null>, "Haus-Strom": <kW|null> }`.
+## Available API Endpoints
 
-Frontend-Funktionen
--------------------
-- Chart: glatte Linien (ohne Punkte), zeigt PV / Meter / House in kW. Das Frontend tauscht PV/Meter Farben und zeigt House als eigene Kurve.
-- Aktuelle Werteleiste über dem Chart mit Icons: 🌞 PV, 🏭 Meter, 🏠 House; rechts laufende Uhr.
-- Meter-Status: unter dem Zählerwert erscheint ein Indikator mit Emoji: `😎 Netzeinspeisung` (positiv), `😢 Netzbezug` (negativ), `😕 Keine Einspeisung/Bezug` (null/0).
-- Automatische Aktualisierung: initialer Load + automatisches Refresh alle 5 Minuten.
-- Buttons: `Refresh` (sofortiger Reload), `Export CSV` (download aller Zeitreihen als CSV).
-- Tabelle: standardmäßig die letzten 10 Einträge, ausklappbar (`Show all`) um alle Werte anzuzeigen.
+- `GET /` — serves the frontend (`frontend/index.html`).
+- `GET /api/pc_pv` — PCurve_Power_PV as JSON: `{ labels: [...], data: [...] }` (kW).
+- `GET /api/pc_meter` — PCurve_Power_Meter as JSON (kW). Returns an empty/null-filled series if
+  the series is missing.
+- `GET /api/pc_house` — PCurve_Power_House (PV − Meter) as JSON (kW). Also calculated
+  client-side if not available.
+- `GET /api/pc_all` — Returns all three series as an object:
+  `{ pv: {labels,data}, meter: {labels,data}, house: {labels,data} }`. Used by the frontend by default.
+- `GET /api/pc_now` — Latest data point:
+  `{ time: <x>, "pv-power": <kW|null>, "grid-feed-in/draw": <kW|null>, "house-power": <kW|null> }`.
 
-Datenformat (Beispiel für einzelne Zeile im CSV / Tabelle)
---------------------------------------------------------
+## Frontend Features
+
+- **Chart**: smooth lines (no dots), displays PV / Meter / House in kW. The frontend swaps PV/Meter
+  colors and shows House as its own curve.
+- **Live value bar** above the chart with icons: 🌞 PV, 🏭 Meter, 🏠 House; running clock on the right.
+- **Meter status**: an emoji indicator below the meter value:
+  `😎 Grid feed-in` (positive), `😢 Grid draw` (negative), `😕 No feed-in/draw` (null/0).
+- **Auto-refresh**: initial load + automatic refresh every 5 minutes.
+- **Buttons**: `Refresh` (immediate reload), `Export CSV` (downloads all time series as CSV).
+- **Table**: last 10 entries by default, expandable (`Show all`) to display all values.
+
+## Data Format (example row in CSV / table)
+
 ```json
-{"Uhrzeit":"17:45","PV-Strom":0.0,"Netzeinspeisung/-Bezug":5.765,"Haus-Strom":0}
+{"time":"17:45","pv-power":0.0,"grid-feed-in/draw":5.765,"house-power":0}
 ```
 
-Hinweise
---------
-- Setze `SEMS_USER` und `SEMS_PASSWORD` korrekt, damit der Server die SEMS-API erreichen kann. Du kannst eine `.env`-Datei nutzen; `start_server.sh` lädt diese automatisch, falls vorhanden.
-- Das Frontend bevorzugt `/api/pc_all`; wenn `house` in der Antwort fehlt, berechnet das Frontend `house = pv - meter` und zeigt negative Werte als leer an (Haus kann nicht negativ sein).
-- Bei Problemen: Logs prüfen (`docker compose logs -f` oder `./start_server.sh` Ausgaben).
-- Falls du SVG-Icons, deutsche Beschriftungen oder eine Prometheus-/Influx-Export-Option möchtest, sag Bescheid — ich kann das ergänzen.
+## Notes
 
-Kontakt
--------
-Für Änderungen am Frontend schaue in `frontend/index.html`. Backend-Logik ist in `api/main.py`.
+- Set `SEMS_USER` and `SEMS_PASSWORD` correctly so the server can reach the SEMS API. You can use
+  a `.env` file; `start_server.sh` loads it automatically if present.
+- The frontend prefers `/api/pc_all`; if `house` is missing from the response, the frontend
+  calculates `house = pv - meter` and treats negative values as empty (house power cannot be negative).
+- For troubleshooting: check logs via `docker compose logs -f` or the `./start_server.sh` output.
+- If you'd like SVG icons, localized labels, or a Prometheus/InfluxDB export option, feel free to
+  open an issue — contributions are welcome.
 
+## Architecture
+
+For frontend changes, see `frontend/index.html`. Backend logic is in `api/main.py`.
+
+## License
+
+This project is licensed under the **GNU General Public License v3.0** — see [LICENSE](LICENSE) for details.
+
+Third-party dependencies and their licenses are listed in [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
