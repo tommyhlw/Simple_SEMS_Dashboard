@@ -56,15 +56,24 @@ docker compose logs -f
 ## Available API Endpoints
 
 - `GET /` — serves the frontend (`frontend/index.html`).
-- `GET /api/pc_pv` — PCurve_Power_PV as JSON: `{ labels: [...], data: [...] }` (kW).
-- `GET /api/pc_meter` — PCurve_Power_Meter as JSON (kW). Returns an empty/null-filled series if
-  the series is missing.
-- `GET /api/pc_house` — PCurve_Power_House (PV − Meter) as JSON (kW). Also calculated
-  client-side if not available.
-- `GET /api/pc_all` — Returns all three series as an object:
-  `{ pv: {labels,data}, meter: {labels,data}, house: {labels,data} }`. Used by the frontend by default.
-- `GET /api/pc_now` — Latest data point:
-  `{ time: <x>, "pv-power": <kW|null>, "grid-feed-in/draw": <kW|null>, "house-power": <kW|null> }`.
+- `GET /api/pc_all` — Returns the available PCurve series as JSON (kW):
+  `{ pv: {labels: [...], data: [...]}, meter: {labels: [...], data: [...]}, house: {labels: [...], data: [...]} }`.
+  The frontend uses this endpoint by default.
+- `GET /api/pc_now` — Returns the latest data point for the same three series as single-point arrays, for example:
+  `{ date: "YYYY-MM-DD", pv: {labels:["HH:MM"], data:[<kW|null>]}, meter: {labels:["HH:MM"], data:[<kW|null>]}, house: {labels:["HH:MM"], data:[<kW|null>]} }`.
+
+### Date parameter
+
+Both `/api/pc_all` and `/api/pc_now` accept an optional query parameter `target_date` in the format `YYYY-MM-DD` to request data for a specific date. Examples:
+
+```bash
+curl "http://localhost:8000/api/pc_all?target_date=2026-07-24"
+curl "http://localhost:8000/api/pc_now?target_date=2026-07-24"
+```
+
+Or open in a browser:
+
+`http://localhost:8000/api/pc_all?target_date=2026-07-24`
 
 ## Frontend Features
 
@@ -87,8 +96,9 @@ docker compose logs -f
 
 - Set `SEMS_USER` and `SEMS_PASSWORD` correctly so the server can reach the SEMS API. You can use
   a `.env` file; `start_server.sh` loads it automatically if present.
-- The frontend prefers `/api/pc_all`; if `house` is missing from the response, the frontend
-  calculates `house = pv - meter` and treats negative values as empty (house power cannot be negative).
+- The frontend prefers `/api/pc_all`. If `house` is missing from the response the frontend will
+  calculate `house = pv - meter` client-side when both `pv` and `meter` are present; if either
+  series is missing the frontend leaves `house` values empty (no calculation).
 - For troubleshooting: check logs via `docker compose logs -f` or the `./start_server.sh` output.
 - If you'd like SVG icons, localized labels, or a Prometheus/InfluxDB export option, feel free to
   open an issue — contributions are welcome.
