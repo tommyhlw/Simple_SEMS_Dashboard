@@ -166,22 +166,22 @@
             const t = now.Uhrzeit;
             const p = (now['PV-Strom'] !== undefined) ? now['PV-Strom'] : null;
             const m = (now['Netzeinspeisung/-Bezug'] !== undefined) ? now['Netzeinspeisung/-Bezug'] : null;
-            labels.splice(0, labels.length, t);
+            labels = [t];
             pvData = [p];
             meterData = [m];
-            houseData = [ (p != null && m != null && (p - m) >= 0) ? Math.round((p - m) * 1000) / 1000 : null ];
+          }
+          // If either PV or Meter series is missing, don't compute house values (leave nulls)
+          if (!pvData || pvData.length === 0 || !meterData || meterData.length === 0) {
+            houseData = labels.map(() => null);
           } else {
             // compute from series (align by index of pv labels)
-            for (let i = 0; i < labels.length; i++) {
-              const p = (pvData && i < pvData.length) ? pvData[i] : null;
-              const m = (meterData && i < meterData.length) ? meterData[i] : null;
-              if (p == null || m == null) {
-                houseData[i] = null;
-              } else {
-                const h = Math.round((p - m) * 1000) / 1000;
-                houseData[i] = (h < 0) ? null : h;
-              }
-            }
+            houseData = labels.map((_, i) => {
+              const p = (i < pvData.length) ? pvData[i] : null;
+              const m = (i < meterData.length) ? meterData[i] : null;
+              if (p == null || m == null) return null;
+              const h = Math.round((p - m) * 1000) / 1000;
+              return (h < 0) ? null : h;
+            });
           }
 
           if (!chart) {

@@ -115,13 +115,15 @@ async def get_pc_all(target_date: Optional[datetime_date] = Query(
     sems_portal_api.set_region('eu')
     async with aiohttp.ClientSession() as session:
         try:
-            logger.info("Handling /api/pc_all request")
+            logger.info("Handling /api/pc_all_v2 request")
             data, header_token, power_station_id = await do_login(session)
             # fetch plant power chart
             chart = await sems_portal_api.get_plant_power_chart(session, plant_id=power_station_id, token=header_token, targetDate=date)
             lines = chart.get('lines', []) if isinstance(chart, dict) else []
+
             pv_series = next((l for l in lines if l.get('key') == 'PCurve_Power_PV'), None)
             meter_series = next((l for l in lines if l.get('key') == 'PCurve_Power_Meter'), None)
+            house_series = next((l for l in lines if l.get('key') == 'PCurve_Power_Load'), None)
 
             if pv_series is None or meter_series is None:
                 logger.warning("One or more required PCurve_Power series not found in chart response")
@@ -136,20 +138,9 @@ async def get_pc_all(target_date: Optional[datetime_date] = Query(
                 return labels, data_vals
 
             pv_labels, pv_data = extract_series(pv_series)
-            meter_labels, meter_data = extract_series(meter_series)
-            
-            #generate house data by aligning labels and subtracting meter from PV; if either is missing treat as None
-            house_labels = pv_labels  # align house labels with PV for now; ideally should be union of PV and Meter labels
-            house_data = []
-            i = 0
-            for pv in pv_data:
-                meter = meter_data[i]
-                i += 1
-                if pv == "":
-                    pv = 0.0
-                if meter == "":
-                    meter = 0.0                
-                house_data.append(str(round(float(pv) - float(meter), 1))) 
+            meter_labels, meter_data = extract_series(meter_series)          
+            house_labels, house_data = extract_series(house_series) 
+        
 
             plant_statistics = "" 
             
