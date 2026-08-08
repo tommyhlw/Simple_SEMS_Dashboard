@@ -3,7 +3,7 @@
 ## Summary
 This project reads power series from the SEMS API and exposes them via `FastAPI` as time series.
 A simple single-page frontend displays the PCurve series for PV, Meter and House (PV − Meter),
-including live values, a chart, and CSV export.
+including live values, a chart, CSV export, and a rendered PNG snapshot endpoint for the mobile dashboard.
 
 ## Local Setup (virtual environment recommended)
 
@@ -60,8 +60,8 @@ docker compose logs -f
   `{ pv: {labels: [...], data: [...]}, meter: {labels: [...], data: [...]}, house: {labels: [...], data: [...]} }`.
   The frontend uses this endpoint by default.
 - `GET /api/pc_now` — Returns the latest data point for the same three series as single-point arrays, for example:
-  `{ date: "YYYY-MM-DD", pv: {labels:["HH:MM"], data:[<kW|null>]}, meter: {labels:["HH:MM"], data:[<kW|null>]}, house: {labels:["HH:MM"], data:[<kW|null>]} }`.
-
+  `{ date: "YYYY-MM-DD", pv: {labels:["HH:MM"], data:[<kW|null>]}, meter: {labels:["HH:MM"], data:[<kW|null>]}, house: {labels:["HH:MM"], data:[<kW|null>]} }`.- `GET /api/pc_snapshot` — Returns a rendered PNG snapshot of the mobile dashboard.
+  Use `target_date=YYYY-MM-DD` to render a specific date, e.g. `/api/pc_snapshot?target_date=2026-07-24`.
 ### Date parameter
 
 Both `/api/pc_all` and `/api/pc_now` accept an optional query parameter `target_date` in the format `YYYY-MM-DD` to request data for a specific date. Examples:
