@@ -3,3 +3,6 @@ uvicorn[standard]>=0.22
 aiohttp>=3.8
 python-dotenv>=1.0
 sems_portal_api>=0.0.1
+plotly>=6.0
+kaleido>=1.3.0
+playwright>=1.60.0

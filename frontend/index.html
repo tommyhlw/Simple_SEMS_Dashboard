@@ -2,307 +2,399 @@
 <html lang="de">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Power Curve</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Power Curve Mobile</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-      body { font-family: Arial, sans-serif; margin: 24px; background:#fafafa; }
-      .container { max-width:1000px; margin:0 auto; padding:6px; }
-      #chart-container { width: 100%; }
-      #current-values{max-width:1000px;margin:12px auto 0}
-      .metric { border-left:6px solid transparent; }
-      .metric .icon{width:28px;text-align:center}
-      button{background:#0366d6;color:#fff;border:none;padding:6px 10px;border-radius:6px;cursor:pointer}
-      button.secondary{background:#6c757d}
-      @media (max-width:700px){
-        body{margin:12px}
-        .metric{width:100%}
-        .metric div{display:block}
-        .container { padding:4px }
+      :root {
+        color-scheme: dark;
+        --bg: #04101f;
+        --surf: rgba(255,255,255,0.05);
+        --surf-strong: rgba(255,255,255,0.08);
+        --text: #f6f8ff;
+        --muted: #94a8cf;
+        --accent-pv: #f9b229;
+        --accent-meter: #56c7ff;
+        --accent-house: #4ad68f;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; min-height: 100%; background: radial-gradient(circle at top, #0f233a 0%, #020813 60%); color: var(--text); font-family: Inter, system-ui, sans-serif; }
+      body { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+      .screen { width: 80%; max-width: 960px; min-width: 320px; margin: 0 auto; padding: 16px 16px 24px; }
+      .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; gap: 10px; }
+      .topbar button { width: 42px; height: 42px; border-radius: 14px; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.06); color: var(--text); font-size: 1.35rem; display: grid; place-items: center; cursor: pointer; }
+      .title-group { text-align: center; flex: 1; }
+      .snapshot-mode body { margin: 0; padding: 0; overflow: hidden; }
+      .snapshot-mode .screen { width: 960px; max-width: 960px; min-width: 960px; margin: 0 auto; padding: 12px 12px 10px; min-height: 540px; max-height: 540px; overflow: hidden; }
+      .snapshot-mode .topbar,
+      .snapshot-mode .date-card,
+      .snapshot-mode .actions { display: none !important; }
+      .snapshot-mode .cards-wrapper { margin-bottom: 12px; }
+      .snapshot-mode .cards { gap: 12px; }
+      .snapshot-mode .metric-card { padding: 16px; min-height: 128px; }
+      .snapshot-mode .chart-card { padding: 14px; }
+      .snapshot-mode .chart-meta { margin-bottom: 10px; }
+      .snapshot-mode .legend { margin-top: 12px; }
+      .snapshot-mode .chart-canvas { aspect-ratio: 16 / 8; max-height: 278px; }
+      .title-group h1 { margin: 0; font-size: 2.0rem; letter-spacing: 0.02em; font-weight: 700; }
+      .title-group p { margin: 4px 0 0; color: var(--muted); font-size: 1.2rem; }
+      .date-card { margin: 0 auto 18px; width: 100%; max-width: 320px; }
+      .date-button { width: 100%; display: inline-flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.04); color: var(--text); font-size: 1.2rem; }
+      .date-button input { background: transparent; border: none; color: inherit; font: inherit; text-align: right; width: 100%; cursor: pointer; }
+      .cards-wrapper { overflow: visible; padding-bottom: 0; margin-bottom: 16px; }
+      .cards { display: grid; gap: 16px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .metric-card { width: 100%; padding: 22px; min-height: 148px; border-radius: 30px; border: 1px solid rgba(255,255,255,0.16); background: rgba(255,255,255,0.05); box-shadow: 0 22px 54px rgba(0,0,0,0.25); backdrop-filter: blur(10px); }
+      .metric-card.pv { border-color: rgba(249,178,41,0.85); background: rgba(249,178,41,0.12); }
+      .metric-card.meter { border-color: rgba(86,199,255,0.85); background: rgba(86,199,255,0.12); }
+      .metric-card.house { border-color: rgba(74,214,143,0.85); background: rgba(74,214,143,0.12); }
+      .metric-card strong { display: inline-flex; align-items: center; justify-content: space-between; width: 100%; gap: 10px; text-transform: uppercase; letter-spacing: 0.08em; font-size: 1.45rem; color: var(--text); }
+      .metric-card.pv strong { color: var(--accent-pv); }
+      .metric-card.meter strong { color: var(--accent-meter); }
+      .metric-card.house strong { color: var(--accent-house); }
+      .metric-card-header { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+      .metric-icon { width: 56px; height: 56px; border-radius: 18px; display: grid; place-items: center; font-size: 30px; border: 1px solid rgba(255,255,255,0.16); }
+      .metric-value { margin-top: 18px; font-size: 2.55rem; font-weight: 800; line-height: 1.05; }
+      .metric-card.pv .metric-value { color: var(--accent-pv); }
+      .metric-card.meter .metric-value { color: var(--accent-meter); }
+      .metric-card.house .metric-value { color: var(--accent-house); }
+      .metric-status { margin-top: 8px; font-size: 1.5rem; color: #d1e8ff; display: flex; align-items: center; gap: 10px; justify-content: center; }
+      .metric-status span { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; font-size: 1.85rem; }
+      .legend-chip { display: inline-flex; align-items: center; gap: 8px; color: #d9e5ff; font-size: 1.1rem; }
+      .legend-chip span { width: 14px; height: 14px; border-radius: 5px; display: inline-block; border: 1px solid rgba(255,255,255,0.16); }
+      .chart-card { border-radius: 28px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 18px; }
+      .chart-meta { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+      .chart-meta .label { color: var(--muted); font-size: 1.17rem; }
+      .chart-meta .value { font-size: 1.2rem; font-weight: 600; color: #ffffff; }
+      .chart-canvas { border-radius: 22px; overflow: hidden; background: #051224; width: 100%; max-width: 100%; aspect-ratio: 18 / 9; max-height: 520px; margin: 0 auto; }
+      .legend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+      .legend-chip { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 1.05rem; }
+      .legend-chip span { width: 12px; height: 12px; border-radius: 4px; display: inline-block; }
+      .legend-chip span { width: 12px; height: 12px; border-radius: 4px; display: inline-block; }
+      .actions { display: flex; justify-content: center; gap: 18px; margin-top: 18px; flex-wrap: wrap; }
+      .action-link { color: var(--muted); text-decoration: none; font-size: 1.2rem; }
+      .action-link:hover { text-decoration: underline; }
+      @media (max-width: 768px) {
+        .screen { padding: 14px 12px 20px; }
+        .topbar { gap: 12px; flex-wrap: wrap; }
+        .title-group h1 { font-size: 1.5rem; }
+        .title-group p { font-size: 0.88rem; }
+        .date-card { max-width: 100%; }
+        .cards { grid-template-columns: 1fr; }
+        .metric-card { padding: 14px; }
+        .metric-value { font-size: 1.2rem; }
+        .chart-card { padding: 16px; }
+        .chart-meta { flex-direction: column; align-items: flex-start; gap: 8px; }
       }
     </style>
   </head>
   <body>
-    <div class="container">
-      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-        <h2 id="page-title" style="margin:0">Power Curve</h2>
-        <label for="todayDate">Select Date:</label>
-        <input type="date" id="todayDate">
-        <div style="margin-left:auto;display:flex;gap:8px">
-          <button id="refresh-btn">Refresh</button>
-          <button id="export-csv">Export CSV</button>
+    <div class="screen">
+      <div class="topbar">
+        <button type="button" aria-label="Menü">☰</button>
+        <div class="title-group">
+          <h1>Power Curve</h1>
+          <p>Aktuelle Leistung und Verbrauch</p>
+        </div>
+        <button type="button" id="refresh-icon" aria-label="Aktualisieren">↻</button>
+      </div>
+
+      <div class="date-card">
+        <label class="date-button" for="todayDate">
+          <span id="date-display">—</span>
+          <input id="todayDate" type="date" />
+        </label>
+      </div>
+
+      <div class="cards-wrapper">
+        <div class="cards">
+          <div class="metric-card pv" id="card-pv">
+            <div class="metric-card-header">
+              <strong>PV</strong>
+              <div class="metric-icon" style="background: rgba(249,178,41,0.14); color: var(--accent-pv);">☀️</div>
+            </div>
+            <div class="metric-value" id="val-pv">— kW</div>
           </div>
-      </div>
-    </div>
-    <div id="current-values" style="margin-top:12px; display:flex; gap:12px; align-items:center;">
-      <div class="metric" id="m-pv" style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid #eee;border-radius:6px">
-        <div class="icon" style="font-size:20px">🌞</div>
-        <div><div style="font-size:12px;color:#666">PV</div><div id="val-pv" style="font-weight:600">— kW</div></div>
-      </div>
-      <div class="metric" id="m-meter" style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid #eee;border-radius:6px">
-        <div class="icon" style="font-size:20px">🏭</div>
-        <div>
-          <div style="font-size:12px;color:#666">Zähler</div>
-          <div id="val-meter" style="font-weight:600">— kW</div>
-          <div id="meter-status" style="font-size:12px;color:#666;margin-top:4px">😕 —</div>
+          <div class="metric-card meter" id="card-meter">
+            <div class="metric-card-header">
+              <strong>Zähler</strong>
+              <div class="metric-icon" style="background: rgba(86,199,255,0.14); color: var(--accent-meter);">⚡</div>
+            </div>
+            <div class="metric-value" id="val-meter">— kW</div>
+            <div class="metric-status" id="meter-status"><span>😎</span>Netzeinspeisung/-Bezug</div>
+          </div>
+          <div class="metric-card house" id="card-house">
+            <div class="metric-card-header">
+              <strong>Haus</strong>
+              <div class="metric-icon" style="background: rgba(74,214,143,0.14); color: var(--accent-house);">🏠</div>
+            </div>
+            <div class="metric-value" id="val-house">— kW</div>
+          </div>
         </div>
       </div>
-      <div class="metric" id="m-house" style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid #eee;border-radius:6px">
-        <div class="icon" style="font-size:20px">🏠</div>
-        <div><div style="font-size:12px;color:#666">Haus</div><div id="val-house" style="font-weight:600">— kW</div></div>
+
+      <div class="chart-card">
+        <div class="chart-meta">
+          <div class="label">Power curve</div>
+          <div class="value" id="val-time">Letzter Messwert: —</div>
+        </div>
+        <div class="chart-canvas">
+          <canvas id="pvChart"></canvas>
+        </div>
+        <div class="legend">
+          <span class="legend-chip"><span style="background: var(--accent-pv)"></span>PV</span>
+          <span class="legend-chip"><span style="background: var(--accent-meter)"></span>Zähler</span>
+          <span class="legend-chip"><span style="background: var(--accent-house)"></span>Haus</span>
+        </div>
       </div>
-      <div style="margin-left:auto;color:#666;font-size:13px" id="val-time">—</div>
+
+      <div class="actions">
+        <a href="#" id="export-csv" class="action-link">CSV exportieren</a>
+        <a href="#" id="refresh-link" class="action-link">Aktualisieren</a>
+      </div>
     </div>
-    <div class="container">
-      <div id="text-chart-container" style="display:none">
-         <span>negativer Zähler Wert sad smiley, postiver wert happy smiley</span>
-      </div>
-    </div>
-    <div class="container">
-      <div id="chart-container">
-        <canvas id="pvChart"></canvas>
-      </div>
-    </div>  
 
     <script>
-
-      async function loadPC(date = today) {
-        const base = window.location.origin;
-        const url = base + '/api/pc_all?target_date=' + date;
-        const r1 = await fetch(url);
-        if (!r1.ok) {
-          const txt = await r1.text();
-          console.error('PCurve_Power fetch failed', r1.status, txt);
-          throw new Error('PCurve_Power fetch failed: ' + r1.status + ' ' + txt);
-        }
-        const j1 = await r1.json();  
-        // console.log('PCurve_Power data', j1);
-        return { j1 };
-      }
-
-      function createChart(ctxEl, labels, datasets, opts={}) {
-        const ctx = ctxEl.getContext('2d');
-        // ensure datasets have no visible points and are slightly smoothed
-        datasets.forEach(d => { d.pointRadius = 0; d.tension = (d.tension === undefined) ? 0.32 : d.tension; d.pointHoverRadius = d.pointHoverRadius || 4 });
-        return new Chart(ctx, {
-          type: 'line',
-          data: {
-            labels: labels,
-            datasets: datasets
-          },
-          options: Object.assign({
-            responsive: true,
-            aspectRatio: opts.aspectRatio || (4/3),
-            plugins: { legend: { position: 'top', labels: { font: { size: opts.legendFontSize || 11 }, boxWidth: opts.legendBoxWidth || 10 } } },
-            elements: { point: { radius: 0 } },
-            scales: {
-              y: { title: { display: true, text: opts.yLabel || 'kW' } },
-              x: { title: { display: true, text: 'Time' } }
-            }
-          }, opts.options || {})
-        });
-      }
-
-      (async () => {
+      const dateInput = document.getElementById('todayDate');
+      const dateDisplay = document.getElementById('date-display');
+      const params = new URLSearchParams(window.location.search);
+      const snapshotMode = params.get('snapshot') === '1';
+      const today = new Date().toISOString().split('T')[0];
+      const requestedDate = params.get('target_date') || today;
+      const initialDate = requestedDate.match(/^\d{4}-\d{2}-\d{2}$/) ? requestedDate : today;
+      if (snapshotMode) document.documentElement.classList.add('snapshot-mode');
+      dateInput.value = initialDate;
+      dateDisplay.textContent = new Date(initialDate).toLocaleDateString('de-DE');
+      const refreshIcon = document.getElementById('refresh-icon');
+      const refreshLink = document.getElementById('refresh-link');
+      const exportLink = document.getElementById('export-csv');
+      const timeLabel = document.getElementById('val-time');
+      const valPV = document.getElementById('val-pv');
+      const valMeter = document.getElementById('val-meter');
+      const valHouse = document.getElementById('val-house');
+      const meterStatus = document.getElementById('meter-status');
       let chart = null;
-      let table, tbody;
-      let lastSeries = { labels: [], pv: [], meter: [], house: [] };
-      let showAll = false;
-      let toggleBtn = null;
+      let latestPCData = null;
 
-      function buildTable(labels, pvData, meterData, houseData) {
-        lastSeries = { labels: labels.slice(), pv: pvData.slice(), meter: meterData.slice(), house: houseData.slice() };
-        if (!table) {
-          // controls above table
-          const controls = document.createElement('div');
-          controls.style.display = 'flex'; controls.style.justifyContent = 'flex-end'; controls.style.maxWidth = '900px'; controls.style.margin = '8px auto 0';
-          toggleBtn = document.createElement('button'); toggleBtn.className = 'secondary'; toggleBtn.textContent = 'Show all'; toggleBtn.style.marginRight = '8px';
-          toggleBtn.addEventListener('click', () => { showAll = !showAll; toggleBtn.textContent = showAll ? 'Show last 10' : 'Show all'; buildTable(lastSeries.labels, lastSeries.pv, lastSeries.meter, lastSeries.house); });
-          controls.appendChild(toggleBtn);
-          document.body.appendChild(controls);
+      async function loadPC(date) {
+        const url = window.location.origin + '/api/pc_all?target_date=' + date;
+        const response = await fetch(url);
+        if (!response.ok) {
+          console.error('Fehler beim Laden der Daten', response.status);
+          return null;
+        }
+        return response.json();
+      }
 
-          table = document.createElement('table');
-          table.style.borderCollapse = 'collapse';
-          table.style.marginTop = '6px';
-          table.style.maxWidth = '900px';
-          table.innerHTML = '<thead><tr><th style="border:1px solid #ccc;padding:6px">Time</th><th style="border:1px solid #ccc;padding:6px">PV (kW)</th><th style="border:1px solid #ccc;padding:6px">Meter (kW)</th><th style="border:1px solid #ccc;padding:6px">House (kW)</th></tr></thead>';
-          tbody = document.createElement('tbody');
-          table.appendChild(tbody);
-          document.body.appendChild(table);
+      function getHourlyLabels() {
+        return Array.from({ length: 25 }, (_, idx) => String(idx));
+      }
+
+      function findLatestTime(labels = [], values = []) {
+        for (let i = values.length - 1; i >= 0; i -= 1) {
+          if (values[i] != null && labels[i]) {
+            return labels[i];
+          }
         }
-        // clear tbody
-        tbody.innerHTML = '';
-        const start = showAll ? 0 : Math.max(0, labels.length - 10);
-        // determine column colors from chart datasets (fallback to defaults)
-        const pvColor = (chart && chart.data && chart.data.datasets[0] && chart.data.datasets[0].borderColor) ? chart.data.datasets[0].borderColor : '#03bbd6';
-        const meterColor = (chart && chart.data && chart.data.datasets[1] && chart.data.datasets[1].borderColor) ? chart.data.datasets[1].borderColor : '#fbb03b';
-        const houseColor = (chart && chart.data && chart.data.datasets[2] && chart.data.datasets[2].borderColor) ? chart.data.datasets[2].borderColor : '#2ca02c';
-        for (let i = start; i < labels.length; i++) {
-          const tr = document.createElement('tr');
-          const t1 = document.createElement('td'); t1.style.border='1px solid #eee'; t1.style.padding='6px'; t1.textContent = labels[i];
-          const t2 = document.createElement('td'); t2.style.border='1px solid #eee'; t2.style.padding='6px'; t2.textContent = (pvData[i] != null) ? pvData[i] : '';
-          const t3 = document.createElement('td'); t3.style.border='1px solid #eee'; t3.style.padding='6px'; t3.textContent = (meterData[i] != null) ? meterData[i] : '';
-          const t4 = document.createElement('td'); t4.style.border='1px solid #eee'; t4.style.padding='6px'; t4.textContent = (houseData[i] != null) ? houseData[i] : '';
-          // color the value text to match the chart legend/dataset colors
-          t2.style.color = pvColor;
-          t3.style.color = meterColor;
-          t4.style.color = houseColor;
-          tr.appendChild(t1); tr.appendChild(t2); tr.appendChild(t3); tr.appendChild(t4);
-          tbody.appendChild(tr);
+        return null;
+      }
+
+      function normalizeHourlyData(labels = [], values = []) {
+        const hourly = Array(25).fill(null);
+        labels.forEach((label, index) => {
+          const match = String(label).match(/^(\d{1,2})(?::\d{2})?/);
+          if (!match) return;
+          const hour = parseInt(match[1], 10);
+          if (Number.isNaN(hour) || hour < 0 || hour > 23) return;
+          if (values[index] != null) {
+            hourly[hour] = values[index];
+          }
+        });
+        return hourly;
+      }
+
+      function createChart(labels, pvData, meterData, houseData) {
+        const ctx = document.getElementById('pvChart').getContext('2d');
+        const isMobile = window.innerWidth <= 480;
+        const datasets = [
+          { label: 'PV (kW)', data: pvData, borderColor: 'rgba(251,176,59,1)', backgroundColor: 'rgba(251,176,59,0.16)', fill: true, tension: 0.28, pointRadius: 0 },
+          { label: 'Zähler (kW)', data: meterData, borderColor: 'rgba(86,199,255,1)', backgroundColor: 'rgba(86,199,255,0.14)', fill: false, tension: 0.28, pointRadius: 0 },
+          { label: 'Haus (kW)', data: houseData, borderColor: 'rgba(74,214,143,1)', backgroundColor: 'rgba(74,214,143,0.12)', fill: false, tension: 0.28, pointRadius: 0 }
+        ];
+        if (chart) {
+          chart.data.labels = labels;
+          chart.data.datasets = datasets;
+          chart.update();
+          return;
         }
+        chart = new Chart(ctx, {
+          type: 'line',
+          data: { labels, datasets },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            layout: { padding: 0 },
+            plugins: { legend: { display: false } },
+            scales: {
+              x: {
+                type: 'category',
+                grid: { color: 'rgba(255,255,255,0.06)' },
+                ticks: {
+                  color: '#9fb4d8',
+                  font: { size: isMobile ? 20 : 24 },
+                  maxTicksLimit: 13,
+                  source: 'labels',
+                  autoSkip: true,
+                  callback: (value) => {
+                    if (typeof value === 'string' && value.includes(':')) {
+                      return value;
+                    }
+                    const hour = Number(value);
+                    if (Number.isNaN(hour)) return value;
+                    if (hour % 2 !== 0) return '';
+                    return String(hour);
+                  }
+                },
+                min: '0',
+                max: '24',
+                bounds: 'ticks',
+                title: { display: true, text: 'Stunden', color: '#9fb4d8', font: { size: isMobile ? 22 : 26, weight: '600' } }
+              },
+              y: {
+                grid: { color: 'rgba(255,255,255,0.06)' },
+                ticks: { color: '#9fb4d8', maxTicksLimit: isMobile ? 6 : 10, font: { size: isMobile ? 18 : 22 } },
+                title: { display: true, text: 'kW', color: '#9fb4d8', font: { size: isMobile ? 20 : 24, weight: '600' } }
+              }
+            }
+          }
+        });
+        window.chart = chart;
+      }
+
+      function updateCards(json) {
+        if (!json) return;
+        const source = json.j1 || json;
+        const hourlyLabels = getHourlyLabels();
+        const rawPVLabels = source?.pv?.labels || [];
+        const rawMeterLabels = source?.meter?.labels || rawPVLabels;
+        let pvData = normalizeHourlyData(rawPVLabels, source?.pv?.data || []);
+        let meterData = normalizeHourlyData(rawMeterLabels, source?.meter?.data || []);
+        let houseData = Array(25).fill(null);
+        const now = json.pc_now || null;
+
+        if (now?.Uhrzeit) {
+          const match = String(now.Uhrzeit).match(/^(\d{1,2})(?::\d{2})?/);
+          const hour = match ? parseInt(match[1], 10) : null;
+          if (hour != null && hour >= 0 && hour <= 23) {
+            if (pvData[hour] == null) pvData[hour] = now['PV-Strom'] ?? null;
+            if (meterData[hour] == null) meterData[hour] = now['Netzeinspeisung/-Bezug'] ?? null;
+          }
+        }
+
+        function getLatestLabel(labels = [], values = []) {
+          for (let i = labels.length - 1; i >= 0; i -= 1) {
+            if (values[i] != null && labels[i]) {
+              return labels[i];
+            }
+          }
+          return null;
+        }
+
+        houseData = hourlyLabels.map((_, idx) => {
+          const p = pvData[idx] ?? null;
+          const m = meterData[idx] ?? null;
+          if (p == null || m == null) return null;
+          return Math.round((p - m) * 1000) / 1000;
+        });
+
+        const latestMeterIndex = meterData.map((v, i) => (v != null ? i : -1)).reduce((a, b) => Math.max(a, b), -1);
+        const latestHouseIndex = houseData.map((v, i) => (v != null ? i : -1)).reduce((a, b) => Math.max(a, b), -1);
+        const latestPvIndex = pvData.map((v, i) => (v != null ? i : -1)).reduce((a, b) => Math.max(a, b), -1);
+        const latestIndex = Math.max(latestMeterIndex, latestHouseIndex, latestPvIndex);
+        const latestMeterTime = getLatestLabel(rawMeterLabels, source?.meter?.data || []);
+        const latestPvTime = getLatestLabel(rawPVLabels, source?.pv?.data || []);
+        const lastTime = now?.Uhrzeit || latestMeterTime || latestPvTime || (latestIndex >= 0 ? hourlyLabels[latestIndex] : '—');
+        const lastPV = latestIndex >= 0 ? pvData[latestIndex] : null;
+        const lastMeter = latestIndex >= 0 ? meterData[latestIndex] : null;
+        const lastHouse = latestIndex >= 0 ? houseData[latestIndex] : null;
+
+        valPV.textContent = lastPV != null ? lastPV + ' kW' : '— kW';
+        valMeter.textContent = lastMeter != null ? lastMeter + ' kW' : '— kW';
+        valHouse.textContent = lastHouse != null ? lastHouse + ' kW' : '— kW';
+        timeLabel.textContent = 'Letzter Messwert: ' + lastTime;
+        if (lastMeter == null) {
+          meterStatus.innerHTML = '<span>😕</span>Keine Werte';
+        } else if (lastMeter > 0) {
+          meterStatus.innerHTML = '<span>😎</span>Netzeinspeisung';
+        } else if (lastMeter < 0) {
+          meterStatus.innerHTML = '<span>😢</span>Netzbezug';
+        } else {
+          meterStatus.innerHTML = '<span>😕</span>Neutral';
+        }
+        createChart(hourlyLabels, pvData, meterData, houseData);
       }
 
       async function refreshAndRender(date) {
-        try {
-          const json = await loadPC(date);
-          let labels = json.j1.pv.labels || [];      
-          let pvData = json.j1.pv.data || [];     
-          let meterData = json.j1.meter.data || [];
-          let houseData = json.j1.house.data || [];    
-          const now = json.pc_now || null;
-
-          // If series are empty but /api/pc_now provides current values, use it as a single-point series
-          if ((labels.length === 0 || pvData.length === 0) && now && now.Uhrzeit) {
-            const t = now.Uhrzeit;
-            const p = (now['PV-Strom'] !== undefined) ? now['PV-Strom'] : null;
-            const m = (now['Netzeinspeisung/-Bezug'] !== undefined) ? now['Netzeinspeisung/-Bezug'] : null;
-            labels = [t];
-            pvData = [p];
-            meterData = [m];
-          }
-          // If either PV or Meter series is missing, don't compute house values (leave nulls)
-          if (!pvData || pvData.length === 0 || !meterData || meterData.length === 0) {
-            houseData = labels.map(() => null);
-          } else {
-            // compute from series (align by index of pv labels)
-            houseData = labels.map((_, i) => {
-              const p = (i < pvData.length) ? pvData[i] : null;
-              const m = (i < meterData.length) ? meterData[i] : null;
-              if (p == null || m == null) return null;
-              const h = Math.round((p - m) * 1000) / 1000;
-              return (h < 0) ? null : h;
-            });
-          }
-
-          if (!chart) {
-            const ds = [
-              // swapped colors: PV uses meter color, Meter uses pv color
-              { label: 'PV (kW)', data: pvData, borderColor: '#fbb03b', backgroundColor: 'rgba(251,176,59,0.1)', fill: true },
-              { label: 'Zähler (kW)', data: meterData, borderColor: '#03bbd6', backgroundColor: 'rgba(3,187,214,0.1)', fill: false },
-              { label: 'Haus (kW)', data: houseData, borderColor: '#2ca02c', backgroundColor: 'rgba(44,160,44,0.08)', fill: false }
-            ];
-            chart = createChart(document.getElementById('pvChart'), labels, ds, { yLabel: 'kW', aspectRatio: 4/3, legendFontSize: 11, legendBoxWidth: 10 });
-          } else {
-            chart.data.labels = labels;
-            // update data and preserve visual settings
-            const sets = [pvData, meterData, houseData];
-            for (let i = 0; i < sets.length; i++) {
-              if (!chart.data.datasets[i]) chart.data.datasets[i] = {};
-              chart.data.datasets[i].data = sets[i];
-              chart.data.datasets[i].pointRadius = 0;
-              chart.data.datasets[i].tension = 0.32;
-              chart.data.datasets[i].pointHoverRadius = 4;
-            }
-            chart.update();
-          }
-
-          buildTable(labels, pvData, meterData, houseData);
-          renderCurrentFromSeries(labels, pvData, meterData, houseData);
-        } catch (e) {
-          console.warn('refresh failed', e);
-        }
+        const json = await loadPC(date);
+        latestPCData = json;
+        updateCards(json);
       }
 
-      function renderCurrentFromSeries(labels, pvData, meterData, houseData) {
-        if (!labels || labels.length === 0) return;
-        const last = labels.length - 1;
-        const time = labels[last];
-        const pv = (pvData && pvData.length > last) ? pvData[last] : null;
-        const meter = (meterData && meterData.length > last) ? meterData[last] : null;
-        const house = (houseData && houseData.length > last) ? houseData[last] : null;
+      async function exportCSV() {
+        const date = dateInput.value;
+        const data = latestPCData || await loadPC(date);
+        if (!data) return;
+        const source = data.j1 || data;
+        const pvLabels = source?.pv?.labels || [];
+        const meterLabels = source?.meter?.labels || [];
+        const houseLabels = source?.house?.labels || [];
+        const pvData = source?.pv?.data || [];
+        const meterData = source?.meter?.data || [];
+        const houseData = source?.house?.data || [];
 
-        document.getElementById('val-pv').textContent = (pv != null) ? pv + ' kW' : '—';
-        document.getElementById('val-meter').textContent = (meter != null) ? meter + ' kW' : '—';
-        document.getElementById('val-house').textContent = (house != null) ? house + ' kW' : '—';
-        document.getElementById('val-time').textContent = time || '—';
-        // color metric boxes and value text to match chart dataset colors
-        try {
-          const pvCol = (chart && chart.data && chart.data.datasets[0] && chart.data.datasets[0].borderColor) ? chart.data.datasets[0].borderColor : '#03bbd6';
-          const meterCol = (chart && chart.data && chart.data.datasets[1] && chart.data.datasets[1].borderColor) ? chart.data.datasets[1].borderColor : '#fbb03b';
-          const houseCol = (chart && chart.data && chart.data.datasets[2] && chart.data.datasets[2].borderColor) ? chart.data.datasets[2].borderColor : '#2ca02c';
-          const mPV = document.getElementById('m-pv'); if (mPV) { mPV.style.borderLeftColor = pvCol; document.getElementById('val-pv').style.color = pvCol; }
-          const mMeter = document.getElementById('m-meter'); if (mMeter) { mMeter.style.borderLeftColor = meterCol; document.getElementById('val-meter').style.color = meterCol; }
-          const mHouse = document.getElementById('m-house'); if (mHouse) { mHouse.style.borderLeftColor = houseCol; document.getElementById('val-house').style.color = houseCol; }
-        } catch (ee) { /* ignore */ }
-        // set meter status: positive = Netzeinspeisung (sunglasses), negative = Netzbezug (sad), zero/null = confused
-        try {
-          const statusEl = document.getElementById('meter-status');
-          if (statusEl) {
-            if (meter == null || meter === 0) {
-              statusEl.textContent = '😕 Keine Einspeisung/Bezug';
-              statusEl.style.color = '#6c757d';
-            } else if (meter > 0) {
-              statusEl.textContent = '😎 Netzeinspeisung';
-              statusEl.style.color = '#198754';
-            } else {
-              statusEl.textContent = '😢 Netzbezug';
-              statusEl.style.color = '#d9534f';
-            }
+        const makeMap = (labels, values) => labels.reduce((map, label, index) => {
+          if (label != null && label !== '') {
+            map[String(label)] = values[index] ?? '';
           }
-        } catch (e2) { /* ignore */ }
+          return map;
+        }, {});
+
+        const pvMap = makeMap(pvLabels, pvData);
+        const meterMap = makeMap(meterLabels, meterData);
+        const houseMap = makeMap(houseLabels, houseData);
+        const allLabels = Array.from(new Set([...pvLabels, ...meterLabels, ...houseLabels])).filter((label) => label != null && label !== '');
+
+        if (!allLabels.length) return;
+
+        const csvRows = [
+          ['label', 'pv', 'meter', 'house'],
+          ...allLabels.map((label) => [
+            String(label),
+            pvMap[String(label)] ?? '',
+            meterMap[String(label)] ?? '',
+            houseMap[String(label)] ?? ''
+          ])
+        ];
+
+        const csvText = csvRows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
+        const blob = new Blob([csvText], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = 'pc_values_' + date + '.csv';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(link.href);
       }
 
-      // 1. Define the input element variable first
-      const dateInput = document.getElementById('todayDate');
-      // 2. Get today's date properly as a string (YYYY-MM-DD)
-      const today = new Date().toISOString().split('T')[0];
-      // 3. Set the input's default value to today's date
-      dateInput.value = today;
-      // 4. Add the change event listener
-      dateInput.addEventListener('change', (event) => {
-        const selectedDate = event.target.value;        
-        // 5. Call the function (Ensure this function exists in your script!)
-        // console.log('Selected date:', selectedDate);
-        refreshAndRender(dateInput.value)// trigger refresh for the selected date
-         // Optionally, you can directly call the function if it accepts a date parameter:
-          .then(data => {
-            console.log('Data for selected date', data);
-            // Add your chart/table update logic here
-          })
-          .catch(err => {
-            console.error('Error loading data for selected date', err);
-          });
+      dateInput.addEventListener('change', () => {
+        dateDisplay.textContent = new Date(dateInput.value).toLocaleDateString('de-DE');
+        refreshAndRender(dateInput.value);
       });
-      
-      // hook buttons
-      const refreshBtn = document.getElementById('refresh-btn');
-      if (refreshBtn) refreshBtn.addEventListener('click', () => refreshAndRender(today));
-      if (refreshBtn) refreshBtn.addEventListener('click', () => dateInput.value = today);
-      const exportBtn = document.getElementById('export-csv');
-      if (exportBtn) exportBtn.addEventListener('click', () => exportCSV());
+      refreshIcon.addEventListener('click', () => refreshAndRender(dateInput.value));
+      refreshLink.addEventListener('click', (event) => { event.preventDefault(); refreshAndRender(dateInput.value); });
+      exportLink.addEventListener('click', async (event) => { event.preventDefault(); await exportCSV(); });
 
-      // initial load
-      await refreshAndRender(today);
-
-      // update title time every second
-      setInterval(() => { const el = document.getElementById('title-time'); if (el) el.textContent = new Date().toLocaleString(); }, 1000);
-
-      // refresh every 5 minutes
-      setInterval(refreshAndRender, 5 * 60 * 1000);
-
-      // export CSV (all rows)
-      function exportCSV() {
-        const cols = ['Time','PV (kW)','Meter (kW)','House (kW)'];
-        const rows = [cols];
-        const { labels, pv, meter, house } = lastSeries;
-        for (let i = 0; i < labels.length; i++) rows.push([labels[i] || '', pv[i] != null ? pv[i] : '', meter[i] != null ? meter[i] : '', house[i] != null ? house[i] : '']);
-        const csv = rows.map(r => r.map(c => '"' + String(c).replace(/"/g,'""') + '"').join(',')).join('\n');
-        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a'); a.href = url; a.download = 'pc_values.csv'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
-      }
-      })();
-
+      refreshAndRender(initialDate);
     </script>
   </body>
 </html>

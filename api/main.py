@@ -1,6 +1,7 @@
-from fastapi import FastAPI, HTTPException, Query
+from base64 import b64decode, b64encode
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from datetime import datetime, date as datetime_date
 from typing import Optional
 import sems_portal_api
@@ -9,6 +10,7 @@ import os
 import logging
 import time
 import asyncio
+from playwright.async_api import async_playwright, Error as PlaywrightError
 
 
 logging.basicConfig(level=logging.INFO)
@@ -130,6 +132,8 @@ async def get_pc_all(target_date: Optional[datetime_date] = Query(
                 raise HTTPException(status_code=404, detail='One or more required PCurve_Power series not found')
             
             def extract_series(series):
+                if series is None:
+                    return [], []
                 xy = series.get('xy', [])
                 labels = [pt.get('x') for pt in xy]
                 # convert W to kW and round to 1 decimal, treat 0 as "" for better chart display
@@ -138,11 +142,13 @@ async def get_pc_all(target_date: Optional[datetime_date] = Query(
                 return labels, data_vals
 
             pv_labels, pv_data = extract_series(pv_series)
-            meter_labels, meter_data = extract_series(meter_series)          
-            house_labels, house_data = extract_series(house_series) 
-        
-
-            plant_statistics = "" 
+            meter_labels, meter_data = extract_series(meter_series)
+            house_labels, house_data = extract_series(house_series)
+            if not house_labels and len(pv_labels) == 24:
+                house_labels = pv_labels
+                house_data = [""] * len(pv_labels)
+            
+            plant_statistics = ""
             
             return {"date": date.strftime("%Y-%m-%d"), "pv": {"labels": pv_labels, "data": pv_data}, "meter": {"labels": meter_labels, "data": meter_data}, "house": {"labels": house_labels, "data": house_data}, "plant_statistics": plant_statistics}
 
@@ -150,4 +156,64 @@ async def get_pc_all(target_date: Optional[datetime_date] = Query(
             raise
         except Exception as exc:
             logger.exception("Error fetching PCurve_Power_PV")
-            raise HTTPException(status_code=500, detail=str(exc)) 
+            raise HTTPException(status_code=500, detail=str(exc))
+
+
+async def _render_mobile_snapshot(request: Request, target_date: datetime_date, width: int = 960, height: int = 540):
+    page_url = f"{request.base_url}?target_date={target_date.isoformat()}&snapshot=1"
+    async with async_playwright() as playwright:
+        browser = await playwright.chromium.launch(headless=True, args=['--no-sandbox', '--disable-setuid-sandbox'])
+        context = await browser.new_context(viewport={'width': width, 'height': height}, device_scale_factor=1)
+        page = await context.new_page()
+        await page.goto(page_url, wait_until='networkidle', timeout=30000)
+        await page.wait_for_selector('#pvChart', timeout=20000)
+        await page.wait_for_function(
+            "() => window.chart && window.chart.data && window.chart.data.datasets && window.chart.data.datasets.length > 0",
+            timeout=60000,
+        )
+        await page.evaluate(
+            f"() => {{"
+            "  const screen = document.querySelector('.screen');"
+            "  if (!screen) return;"
+            f"  screen.style.width = '{width}px';"
+            f"  screen.style.minWidth = '{width}px';"
+            f"  screen.style.maxWidth = '{width}px';"
+            f"  screen.style.height = '{height}px';"
+            "  screen.style.minHeight = screen.style.height;"
+            "  screen.style.maxHeight = screen.style.height;"
+            "  screen.style.padding = '0';"
+            "  screen.style.margin = '0 auto';"
+            "  document.documentElement.style.margin = '0';"
+            "  document.documentElement.style.padding = '0';"
+            "  document.body.style.margin = '0';"
+            "  document.body.style.padding = '0';"
+            "  document.body.style.overflow = 'hidden';"
+            "  window.dispatchEvent(new Event('resize'));"
+            "}"
+        )
+        await page.wait_for_timeout(600)
+        screen = await page.query_selector('.screen')
+        if not screen:
+            raise HTTPException(status_code=500, detail='Screenshot region not found')
+
+        image_bytes = await screen.screenshot(type='png')
+        await browser.close()
+        return image_bytes
+
+
+@app.get('/api/pc_snapshot')
+async def get_pc_snapshot(request: Request, target_date: Optional[datetime_date] = Query(
+        default=datetime.now().date(),
+        description='Datum im Format YYYY-MM-DD'
+    )):
+    """Return a rendered PNG snapshot of the mobile dashboard."""
+    try:
+        image_bytes = await _render_mobile_snapshot(request, target_date)
+        return Response(content=image_bytes, media_type='image/png')
+    except PlaywrightError as exc:
+        logger.exception('Snapshot rendering failed')
+        raise HTTPException(status_code=500, detail=f'Browser snapshot failed: {exc}')
+    except Exception as exc:
+        logger.exception('Snapshot generation failed')
+        raise HTTPException(status_code=500, detail=str(exc))
+
