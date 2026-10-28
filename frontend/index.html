@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>Power Curve Mobile</title>
+    <title>SEMS Live Power Dashboard</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
       :root {
@@ -24,6 +24,9 @@
       .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; gap: 10px; }
       .topbar button { width: 42px; height: 42px; border-radius: 14px; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.06); color: var(--text); font-size: 1.35rem; display: grid; place-items: center; cursor: pointer; }
       .title-group { text-align: center; flex: 1; }
+      .date-card { margin: 0 auto 18px; width: 100%; max-width: 320px; }
+      .date-button { width: 100%; display: inline-flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.04); color: var(--text); font-size: 1.1rem; }
+      .date-button input { background: transparent; border: none; color: inherit; font: inherit; text-align: right; width: 100%; cursor: pointer; }
       .snapshot-mode body { margin: 0; padding: 0; overflow: hidden; }
       .snapshot-mode .screen { width: 960px; max-width: 960px; min-width: 960px; margin: 0 auto; padding: 12px 12px 10px; min-height: 540px; max-height: 540px; overflow: hidden; }
       .snapshot-mode .topbar,
@@ -38,9 +41,6 @@
       .snapshot-mode .chart-canvas { aspect-ratio: 16 / 8; max-height: 278px; }
       .title-group h1 { margin: 0; font-size: 2.0rem; letter-spacing: 0.02em; font-weight: 700; }
       .title-group p { margin: 4px 0 0; color: var(--muted); font-size: 1.2rem; }
-      .date-card { margin: 0 auto 18px; width: 100%; max-width: 320px; }
-      .date-button { width: 100%; display: inline-flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.04); color: var(--text); font-size: 1.2rem; }
-      .date-button input { background: transparent; border: none; color: inherit; font: inherit; text-align: right; width: 100%; cursor: pointer; }
       .cards-wrapper { overflow: visible; padding-bottom: 0; margin-bottom: 16px; }
       .cards { display: grid; gap: 16px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
       .metric-card { width: 100%; padding: 22px; min-height: 148px; border-radius: 30px; border: 1px solid rgba(255,255,255,0.16); background: rgba(255,255,255,0.05); box-shadow: 0 22px 54px rgba(0,0,0,0.25); backdrop-filter: blur(10px); }
@@ -65,6 +65,7 @@
       .chart-meta { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
       .chart-meta .label { color: var(--muted); font-size: 1.17rem; }
       .chart-meta .value { font-size: 1.2rem; font-weight: 600; color: #ffffff; }
+      .api-error { margin: 0 0 14px; color: #ffb3a7; font-size: 1rem; }
       .chart-canvas { border-radius: 22px; overflow: hidden; background: #051224; width: 100%; max-width: 100%; aspect-ratio: 18 / 9; max-height: 520px; margin: 0 auto; }
       .legend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
       .legend-chip { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 1.05rem; }
@@ -92,8 +93,8 @@
       <div class="topbar">
         <button type="button" aria-label="Menü">☰</button>
         <div class="title-group">
-          <h1>Power Curve</h1>
-          <p>Aktuelle Leistung und Verbrauch</p>
+          <h1>SEMS Live</h1>
+          <p>Momentane Leistung und Verbrauch</p>
         </div>
         <button type="button" id="refresh-icon" aria-label="Aktualisieren">↻</button>
       </div>
@@ -120,7 +121,7 @@
               <div class="metric-icon" style="background: rgba(86,199,255,0.14); color: var(--accent-meter);">⚡</div>
             </div>
             <div class="metric-value" id="val-meter">— kW</div>
-            <div class="metric-status" id="meter-status"><span>😎</span>Netzeinspeisung/-Bezug</div>
+            <div class="metric-status" id="meter-status"><span>😕</span>Warte auf Messwert</div>
           </div>
           <div class="metric-card house" id="card-house">
             <div class="metric-card-header">
@@ -134,7 +135,7 @@
 
       <div class="chart-card">
         <div class="chart-meta">
-          <div class="label">Power curve</div>
+          <div class="label">Tagesverlauf</div>
           <div class="value" id="val-time">Letzter Messwert: —</div>
         </div>
         <div class="chart-canvas">
@@ -146,6 +147,7 @@
           <span class="legend-chip"><span style="background: var(--accent-house)"></span>Haus</span>
         </div>
       </div>
+      <p id="api-error" class="api-error" role="alert" hidden></p>
 
       <div class="actions">
         <a href="#" id="export-csv" class="action-link">CSV exportieren</a>
@@ -168,6 +170,7 @@
       const refreshLink = document.getElementById('refresh-link');
       const exportLink = document.getElementById('export-csv');
       const timeLabel = document.getElementById('val-time');
+      const apiError = document.getElementById('api-error');
       const valPV = document.getElementById('val-pv');
       const valMeter = document.getElementById('val-meter');
       const valHouse = document.getElementById('val-house');
@@ -175,60 +178,48 @@
       let chart = null;
       let latestPCData = null;
 
-      async function loadPC(date) {
-        const url = window.location.origin + '/api/pc_all?target_date=' + date;
+      async function loadJSON(url) {
         const response = await fetch(url);
         if (!response.ok) {
-          console.error('Fehler beim Laden der Daten', response.status);
-          return null;
+          const error = await response.json().catch(() => ({}));
+          throw new Error(error.detail || 'SEMS+-Daten konnten nicht geladen werden.');
         }
         return response.json();
       }
 
-      function getHourlyLabels() {
-        return Array.from({ length: 25 }, (_, idx) => String(idx));
+      async function loadPC(date) {
+        const query = new URLSearchParams({ target_date: date });
+        return loadJSON(window.location.origin + '/api/pc_all?' + query);
       }
 
-      function findLatestTime(labels = [], values = []) {
-        for (let i = values.length - 1; i >= 0; i -= 1) {
-          if (values[i] != null && labels[i]) {
-            return labels[i];
-          }
-        }
-        return null;
-      }
-
-      function normalizeHourlyData(labels = [], values = []) {
-        const hourly = Array(25).fill(null);
-        labels.forEach((label, index) => {
-          const match = String(label).match(/^(\d{1,2})(?::\d{2})?/);
-          if (!match) return;
-          const hour = parseInt(match[1], 10);
-          if (Number.isNaN(hour) || hour < 0 || hour > 23) return;
-          if (values[index] != null) {
-            hourly[hour] = values[index];
-          }
-        });
-        return hourly;
+      async function loadNow() {
+        return loadJSON(window.location.origin + '/api/pc_now');
       }
 
       function createChart(labels, pvData, meterData, houseData) {
         const ctx = document.getElementById('pvChart').getContext('2d');
         const isMobile = window.innerWidth <= 480;
+        const toTimePoints = (values) => values.flatMap((value, index) => {
+          const match = String(labels[index] || '').match(/^(\d{1,2}):(\d{2})/);
+          if (!match) return [];
+          const hour = Number(match[1]);
+          const minute = Number(match[2]);
+          if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return [];
+          return [{ x: hour + minute / 60, y: value }];
+        });
         const datasets = [
-          { label: 'PV (kW)', data: pvData, borderColor: 'rgba(251,176,59,1)', backgroundColor: 'rgba(251,176,59,0.16)', fill: true, tension: 0.28, pointRadius: 0 },
-          { label: 'Zähler (kW)', data: meterData, borderColor: 'rgba(86,199,255,1)', backgroundColor: 'rgba(86,199,255,0.14)', fill: false, tension: 0.28, pointRadius: 0 },
-          { label: 'Haus (kW)', data: houseData, borderColor: 'rgba(74,214,143,1)', backgroundColor: 'rgba(74,214,143,0.12)', fill: false, tension: 0.28, pointRadius: 0 }
+          { label: 'PV (kW)', data: toTimePoints(pvData), borderColor: 'rgba(251,176,59,1)', backgroundColor: 'rgba(251,176,59,0.16)', fill: true, tension: 0.28, pointRadius: labels.length === 1 ? 5 : 0 },
+          { label: 'Zähler (kW)', data: toTimePoints(meterData), borderColor: 'rgba(86,199,255,1)', backgroundColor: 'rgba(86,199,255,0.14)', fill: false, tension: 0.28, pointRadius: labels.length === 1 ? 5 : 0 },
+          { label: 'Haus (kW)', data: toTimePoints(houseData), borderColor: 'rgba(74,214,143,1)', backgroundColor: 'rgba(74,214,143,0.12)', fill: false, tension: 0.28, pointRadius: labels.length === 1 ? 5 : 0 }
         ];
         if (chart) {
-          chart.data.labels = labels;
           chart.data.datasets = datasets;
           chart.update();
           return;
         }
         chart = new Chart(ctx, {
           type: 'line',
-          data: { labels, datasets },
+          data: { datasets },
           options: {
             responsive: true,
             maintainAspectRatio: false,
@@ -236,28 +227,22 @@
             plugins: { legend: { display: false } },
             scales: {
               x: {
-                type: 'category',
+                type: 'linear',
+                min: 0,
+                max: 23 + 59 / 60,
+                afterBuildTicks: (axis) => {
+                  axis.ticks = Array.from({ length: 24 }, (_, hour) => ({ value: hour }));
+                },
                 grid: { color: 'rgba(255,255,255,0.06)' },
                 ticks: {
                   color: '#9fb4d8',
-                  font: { size: isMobile ? 20 : 24 },
-                  maxTicksLimit: 13,
-                  source: 'labels',
-                  autoSkip: true,
-                  callback: (value) => {
-                    if (typeof value === 'string' && value.includes(':')) {
-                      return value;
-                    }
-                    const hour = Number(value);
-                    if (Number.isNaN(hour)) return value;
-                    if (hour % 2 !== 0) return '';
-                    return String(hour);
-                  }
+                  font: { size: isMobile ? 10 : 13 },
+                  stepSize: 1,
+                  autoSkip: false,
+                  callback: (value) => Number.isInteger(value) ? String(value) : ''
                 },
-                min: '0',
-                max: '24',
-                bounds: 'ticks',
-                title: { display: true, text: 'Stunden', color: '#9fb4d8', font: { size: isMobile ? 22 : 26, weight: '600' } }
+                bounds: 'data',
+                title: { display: true, text: 'Uhrzeit', color: '#9fb4d8', font: { size: isMobile ? 14 : 18, weight: '600' } }
               },
               y: {
                 grid: { color: 'rgba(255,255,255,0.06)' },
@@ -271,79 +256,69 @@
       }
 
       function updateCards(json) {
-        if (!json) return;
-        const source = json.j1 || json;
-        const hourlyLabels = getHourlyLabels();
-        const rawPVLabels = source?.pv?.labels || [];
-        const rawMeterLabels = source?.meter?.labels || rawPVLabels;
-        let pvData = normalizeHourlyData(rawPVLabels, source?.pv?.data || []);
-        let meterData = normalizeHourlyData(rawMeterLabels, source?.meter?.data || []);
-        let houseData = Array(25).fill(null);
-        const now = json.pc_now || null;
-
-        if (now?.Uhrzeit) {
-          const match = String(now.Uhrzeit).match(/^(\d{1,2})(?::\d{2})?/);
-          const hour = match ? parseInt(match[1], 10) : null;
-          if (hour != null && hour >= 0 && hour <= 23) {
-            if (pvData[hour] == null) pvData[hour] = now['PV-Strom'] ?? null;
-            if (meterData[hour] == null) meterData[hour] = now['Netzeinspeisung/-Bezug'] ?? null;
-          }
-        }
-
-        function getLatestLabel(labels = [], values = []) {
-          for (let i = labels.length - 1; i >= 0; i -= 1) {
-            if (values[i] != null && labels[i]) {
-              return labels[i];
-            }
-          }
-          return null;
-        }
-
-        houseData = hourlyLabels.map((_, idx) => {
-          const p = pvData[idx] ?? null;
-          const m = meterData[idx] ?? null;
-          if (p == null || m == null) return null;
-          return Math.round((p - m) * 1000) / 1000;
-        });
-
-        const latestMeterIndex = meterData.map((v, i) => (v != null ? i : -1)).reduce((a, b) => Math.max(a, b), -1);
-        const latestHouseIndex = houseData.map((v, i) => (v != null ? i : -1)).reduce((a, b) => Math.max(a, b), -1);
-        const latestPvIndex = pvData.map((v, i) => (v != null ? i : -1)).reduce((a, b) => Math.max(a, b), -1);
-        const latestIndex = Math.max(latestMeterIndex, latestHouseIndex, latestPvIndex);
-        const latestMeterTime = getLatestLabel(rawMeterLabels, source?.meter?.data || []);
-        const latestPvTime = getLatestLabel(rawPVLabels, source?.pv?.data || []);
-        const lastTime = now?.Uhrzeit || latestMeterTime || latestPvTime || (latestIndex >= 0 ? hourlyLabels[latestIndex] : '—');
-        const lastPV = latestIndex >= 0 ? pvData[latestIndex] : null;
-        const lastMeter = latestIndex >= 0 ? meterData[latestIndex] : null;
-        const lastHouse = latestIndex >= 0 ? houseData[latestIndex] : null;
+        const labels = json?.pv?.labels || [];
+        const pvData = json?.pv?.data || [];
+        const meterData = json?.meter?.data || [];
+        const houseData = json?.house?.data || [];
+        const lastPV = pvData.length ? pvData[pvData.length - 1] : null;
+        const lastMeter = meterData.length ? meterData[meterData.length - 1] : null;
+        const lastHouse = houseData.length ? houseData[houseData.length - 1] : null;
+        const lastTime = labels.length ? labels[labels.length - 1] : '—';
 
         valPV.textContent = lastPV != null ? lastPV + ' kW' : '— kW';
         valMeter.textContent = lastMeter != null ? lastMeter + ' kW' : '— kW';
         valHouse.textContent = lastHouse != null ? lastHouse + ' kW' : '— kW';
         timeLabel.textContent = 'Letzter Messwert: ' + lastTime;
-        if (lastMeter == null) {
-          meterStatus.innerHTML = '<span>😕</span>Keine Werte';
-        } else if (lastMeter > 0) {
-          meterStatus.innerHTML = '<span>😎</span>Netzeinspeisung';
-        } else if (lastMeter < 0) {
-          meterStatus.innerHTML = '<span>😢</span>Netzbezug';
-        } else {
-          meterStatus.innerHTML = '<span>😕</span>Neutral';
-        }
-        createChart(hourlyLabels, pvData, meterData, houseData);
+        updateMeterStatus(lastMeter);
       }
 
-      async function refreshAndRender(date) {
-        const json = await loadPC(date);
-        latestPCData = json;
-        updateCards(json);
+      function updateMeterStatus(meter) {
+        if (meter == null) {
+          meterStatus.innerHTML = '<span>😕</span>No feed-in/draw';
+        } else if (meter > 0) {
+          meterStatus.innerHTML = '<span>😎</span>Grid feed-in';
+        } else if (meter < 0) {
+          meterStatus.innerHTML = '<span>😢</span>Grid draw';
+        } else {
+          meterStatus.innerHTML = '<span>😕</span>No feed-in/draw';
+        }
+      }
+
+      function updateChart(json) {
+        const labels = json?.pv?.labels || json?.meter?.labels || [];
+        createChart(labels, json?.pv?.data || [], json?.meter?.data || [], json?.house?.data || []);
+      }
+
+      async function refreshAndRender(date = dateInput.value) {
+        const [dailyResult, currentResult] = await Promise.allSettled([loadPC(date), loadNow()]);
+        if (currentResult.status === 'fulfilled') {
+          updateCards(currentResult.value);
+        } else {
+          valPV.textContent = '— kW';
+          valMeter.textContent = '— kW';
+          valHouse.textContent = '— kW';
+          timeLabel.textContent = 'Letzter Messwert: —';
+          meterStatus.innerHTML = '<span>😕</span>Status nicht verfügbar';
+        }
+        if (dailyResult.status === 'fulfilled') {
+          latestPCData = dailyResult.value;
+          updateChart(dailyResult.value);
+        } else {
+          latestPCData = null;
+          updateChart(null);
+        }
+
+        const errors = [...new Set([dailyResult, currentResult]
+          .filter((result) => result.status === 'rejected')
+          .map((result) => result.reason instanceof Error ? result.reason.message : 'SEMS+-Daten konnten nicht geladen werden.'))];
+        apiError.textContent = errors.join(' ');
+        apiError.hidden = errors.length === 0;
       }
 
       async function exportCSV() {
-        const date = dateInput.value;
-        const data = latestPCData || await loadPC(date);
+        const data = latestPCData || await loadPC(dateInput.value);
         if (!data) return;
-        const source = data.j1 || data;
+        const source = data;
         const pvLabels = source?.pv?.labels || [];
         const meterLabels = source?.meter?.labels || [];
         const houseLabels = source?.house?.labels || [];
@@ -379,7 +354,7 @@
         const blob = new Blob([csvText], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement('a');
         link.href = URL.createObjectURL(blob);
-        link.download = 'pc_values_' + date + '.csv';
+        link.download = 'pc_values_' + dateInput.value + '.csv';
         document.body.appendChild(link);
         link.click();
         link.remove();
