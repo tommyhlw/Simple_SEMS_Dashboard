@@ -93,7 +93,7 @@
       <div class="topbar">
         <button type="button" aria-label="Menü">☰</button>
         <div class="title-group">
-          <h1>SEMS Live</h1>
+          <h1>13ha Freiheit PV Dashboard</h1>
           <p>Momentane Leistung und Verbrauch</p>
         </div>
         <button type="button" id="refresh-icon" aria-label="Aktualisieren">↻</button>
@@ -175,6 +175,7 @@
       const valMeter = document.getElementById('val-meter');
       const valHouse = document.getElementById('val-house');
       const meterStatus = document.getElementById('meter-status');
+      window.dashboardDataReady = false;
       let chart = null;
       let latestPCData = null;
 
@@ -208,9 +209,9 @@
           return [{ x: hour + minute / 60, y: value }];
         });
         const datasets = [
-          { label: 'PV (kW)', data: toTimePoints(pvData), borderColor: 'rgba(251,176,59,1)', backgroundColor: 'rgba(251,176,59,0.16)', fill: true, tension: 0.28, pointRadius: labels.length === 1 ? 5 : 0 },
-          { label: 'Zähler (kW)', data: toTimePoints(meterData), borderColor: 'rgba(86,199,255,1)', backgroundColor: 'rgba(86,199,255,0.14)', fill: false, tension: 0.28, pointRadius: labels.length === 1 ? 5 : 0 },
-          { label: 'Haus (kW)', data: toTimePoints(houseData), borderColor: 'rgba(74,214,143,1)', backgroundColor: 'rgba(74,214,143,0.12)', fill: false, tension: 0.28, pointRadius: labels.length === 1 ? 5 : 0 }
+          { label: 'PV (kW)', data: toTimePoints(pvData), borderColor: 'rgba(251,176,59,1)', backgroundColor: 'rgba(251,176,59,0.16)', fill: true, tension: 0.28, cubicInterpolationMode: 'monotone', pointRadius: labels.length === 1 ? 5 : 0 },
+          { label: 'Zähler (kW)', data: toTimePoints(meterData), borderColor: 'rgba(86,199,255,1)', backgroundColor: 'rgba(86,199,255,0.14)', fill: false, tension: 0.28, cubicInterpolationMode: 'monotone', pointRadius: labels.length === 1 ? 5 : 0 },
+          { label: 'Haus (kW)', data: toTimePoints(houseData), borderColor: 'rgba(74,214,143,1)', backgroundColor: 'rgba(74,214,143,0.12)', fill: false, tension: 0.28, cubicInterpolationMode: 'monotone', pointRadius: labels.length === 1 ? 5 : 0 }
         ];
         if (chart) {
           chart.data.datasets = datasets;
@@ -221,10 +222,19 @@
           type: 'line',
           data: { datasets },
           options: {
+            parsing: false,
+            plugins: {
+              legend: { display: false },
+              decimation: {
+                enabled: true,
+                algorithm: 'lttb',
+                samples: 120,
+                threshold: 240
+              }
+            },
             responsive: true,
             maintainAspectRatio: false,
             layout: { padding: 0 },
-            plugins: { legend: { display: false } },
             scales: {
               x: {
                 type: 'linear',
@@ -286,7 +296,12 @@
 
       function updateChart(json) {
         const labels = json?.pv?.labels || json?.meter?.labels || [];
-        createChart(labels, json?.pv?.data || [], json?.meter?.data || [], json?.house?.data || []);
+        const pvData = json?.pv?.data || [];
+        const meterData = json?.meter?.data || [];
+        const houseData = json?.house?.data || [];
+        createChart(labels, pvData, meterData, houseData);
+        window.dashboardDataReady = [pvData, meterData, houseData]
+          .some(values => values.some(value => value != null));
       }
 
       async function refreshAndRender(date = dateInput.value) {

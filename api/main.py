@@ -199,7 +199,7 @@ async def _render_mobile_snapshot(request: Request, target_date: datetime_date, 
         await page.goto(page_url, wait_until='networkidle', timeout=30000)
         await page.wait_for_selector('#pvChart', timeout=20000)
         await page.wait_for_function(
-            "() => window.chart && window.chart.data && window.chart.data.datasets && window.chart.data.datasets.length > 0",
+            "() => window.dashboardDataReady === true && window.chart && window.chart.data && window.chart.data.datasets && window.chart.data.datasets.length > 0",
             timeout=60000,
         )
         await page.evaluate(
