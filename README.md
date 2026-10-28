@@ -1,11 +1,11 @@
 # SEMS Inverter Viewer
 
 ## Summary
-This project reads power series from the SEMS API and exposes them via `FastAPI` as time series.
-A simple single-page frontend displays the PCurve series for PV, Meter and House (PV − Meter),
-including live values, a chart, CSV export, and a rendered PNG snapshot endpoint for the mobile dashboard.
+This project reads GoodWe SEMS+ current values and daily power statistics using `pygoodwe` and
+exposes them via `FastAPI`. The single-page frontend displays live PV, meter, and house values,
+historical daily curves, CSV export, and a rendered PNG snapshot endpoint for the mobile dashboard.
 
-## Local Setup (virtual environment recommended)
+## Local Setup (Python 3.12+; virtual environment recommended)
 
 1. Create a virtual environment and install dependencies:
 
@@ -20,7 +20,13 @@ pip install -r requirements.txt
 ```bash
 export SEMS_USER="your_username"
 export SEMS_PASSWORD="your_password"
+export SEMS_STATION_ID="your_station_uuid"
 ```
+
+Use the station UUID from your SEMS+ station URL for `SEMS_STATION_ID`; do not use the inverter
+serial number. `pygoodwe` uses this ID to retrieve station flow and device status. A Classic station
+ID works only if the station has been migrated to SEMS+. All three variables can also be placed in
+`.env`.
 
 3a. Start the server directly with Uvicorn (development):
 
@@ -56,49 +62,45 @@ docker compose logs -f
 ## Available API Endpoints
 
 - `GET /` — serves the frontend (`frontend/index.html`).
-- `GET /api/pc_all` — Returns the available PCurve series as JSON (kW):
+- `GET /api/pc_all` — Returns historical daily power series in kW for PV, meter, and house:
   `{ pv: {labels: [...], data: [...]}, meter: {labels: [...], data: [...]}, house: {labels: [...], data: [...]} }`.
-  The frontend uses this endpoint by default.
-- `GET /api/pc_now` — Returns the latest data point for the same three series as single-point arrays, for example:
-  `{ date: "YYYY-MM-DD", pv: {labels:["HH:MM"], data:[<kW|null>]}, meter: {labels:["HH:MM"], data:[<kW|null>]}, house: {labels:["HH:MM"], data:[<kW|null>]} }`.- `GET /api/pc_snapshot` — Returns a rendered PNG snapshot of the mobile dashboard.
-  Use `target_date=YYYY-MM-DD` to render a specific date, e.g. `/api/pc_snapshot?target_date=2026-07-24`.
-### Date parameter
+  Accepts `target_date=YYYY-MM-DD`; defaults to today. Data comes from SEMS+ `statisticsAndPreV2`.
+- `GET /api/pc_now` — Returns the latest live measurement from SEMS+ station flow, for example:
+  `{ date: "YYYY-MM-DD", pv: {labels:["HH:MM"], data:[<kW|null>]}, meter: {labels:["HH:MM"], data:[<kW|null>]}, house: {labels:["HH:MM"], data:[<kW|null>]} }`.
+- `GET /api/pc_snapshot` — Returns a rendered PNG snapshot of the mobile dashboard.
 
-Both `/api/pc_all` and `/api/pc_now` accept an optional query parameter `target_date` in the format `YYYY-MM-DD` to request data for a specific date. Examples:
+`target_date` selects the day shown in the chart and snapshot. The live value cards always use the
+latest reading, regardless of the selected chart date.
 
 ```bash
-curl "http://localhost:8000/api/pc_all?target_date=2026-07-24"
-curl "http://localhost:8000/api/pc_now?target_date=2026-07-24"
+curl "http://localhost:8000/api/pc_all?target_date=2026-10-26"
+curl "http://localhost:8000/api/pc_now"
 ```
-
-Or open in a browser:
-
-`http://localhost:8000/api/pc_all?target_date=2026-07-24`
 
 ## Frontend Features
 
-- **Chart**: smooth lines (no dots), displays PV / Meter / House in kW. The frontend swaps PV/Meter
-  colors and shows House as its own curve.
-- **Live value bar** above the chart with icons: 🌞 PV, 🏭 Meter, 🏠 House; running clock on the right.
-- **Meter status**: an emoji indicator below the meter value:
-  `😎 Grid feed-in` (positive), `😢 Grid draw` (negative), `😕 No feed-in/draw` (null/0).
+- **Chart**: displays daily PV / meter / house power curves in kW.
+- **Live values** with icons: 🌞 PV, 🏭 Meter, 🏠 House; measurement time above the chart.
+- **Meter status**: `😎 Grid feed-in` (positive), `😢 Grid draw` (negative),
+  `😕 No feed-in/draw` (null/0).
 - **Auto-refresh**: initial load + automatic refresh every 5 minutes.
-- **Buttons**: `Refresh` (immediate reload), `Export CSV` (downloads all time series as CSV).
-- **Table**: last 10 entries by default, expandable (`Show all`) to display all values.
+- **Buttons**: `Refresh` (immediate reload), `Export CSV` (downloads the selected day's series as CSV).
 
-## Data Format (example row in CSV / table)
+## Data Format (CSV)
 
-```json
-{"time":"17:45","pv-power":0.0,"grid-feed-in/draw":5.765,"house-power":0}
+```csv
+label,pv,meter,house
+14:35,2.4,-0.3,2.7
 ```
 
 ## Notes
 
-- Set `SEMS_USER` and `SEMS_PASSWORD` correctly so the server can reach the SEMS API. You can use
-  a `.env` file; `start_server.sh` loads it automatically if present.
-- The frontend prefers `/api/pc_all`. If `house` is missing from the response the frontend will
-  calculate `house = pv - meter` client-side when both `pv` and `meter` are present; if either
-  series is missing the frontend leaves `house` values empty (no calculation).
+- Set `SEMS_USER`, `SEMS_PASSWORD`, and `SEMS_STATION_ID` correctly. You can use a `.env` file;
+  `start_server.sh` loads it automatically if present.
+- `pc_all` requests `pSystem`, `pConsum`, and `pGrid` through the SEMS+ `statisticsAndPreV2` API.
+  `pc_now` uses the station flow endpoint. The meter indicator describes grid export/import, not PV
+  production. SEMS reports negative `pGrid` for export and positive for import; the API reverses
+  that sign so displayed meter power is positive for import and negative for export.
 - For troubleshooting: check logs via `docker compose logs -f` or the `./start_server.sh` output.
 - If you'd like SVG icons, localized labels, or a Prometheus/InfluxDB export option, feel free to
   open an issue — contributions are welcome.
@@ -106,6 +108,11 @@ Or open in a browser:
 ## Architecture
 
 For frontend changes, see `frontend/index.html`. Backend logic is in `api/main.py`.
+
+## Authors
+
+- Thomas Rosenkranz
+- GitHub Copilot (LLM assistance)
 
 ## License
 

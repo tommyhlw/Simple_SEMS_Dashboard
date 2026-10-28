@@ -1,15 +1,13 @@
-from base64 import b64decode, b64encode
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, Response
 from datetime import datetime, date as datetime_date
 from typing import Optional
-import sems_portal_api
-import aiohttp
+from pygoodwe import SingleInverter
+from pygoodwe.sems_plus import FailureKind, SemsPlusError
+from starlette.concurrency import run_in_threadpool
 import os
 import logging
-import time
-import asyncio
 from playwright.async_api import async_playwright, Error as PlaywrightError
 
 
@@ -17,13 +15,6 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
-
-# simple in-memory cache for power_station_id to avoid intermittent None on concurrent calls
-_cached_power_station_id: Optional[str] = None
-_cached_token: Optional[str] = None
-_cache_ts: float = 0.0
-_cache_lock = asyncio.Lock()
-
 
 @app.middleware("http")
 async def log_requests(request, call_next):
@@ -41,122 +32,163 @@ async def root():
     return FileResponse("frontend/index.html")
 
 
-async def do_login(session: aiohttp.ClientSession):
-    sems_portal_api.set_region('eu')
+def _create_inverter():
     account = os.getenv('SEMS_USER')
     password = os.getenv('SEMS_PASSWORD')
-    if not account or not password:
-        logger.error("Missing SEMS_USER or SEMS_PASSWORD environment variables")
-        raise HTTPException(status_code=500, detail="Missing SEMS_USER or SEMS_PASSWORD")
+    station_id = os.getenv('SEMS_STATION_ID')
+    if not account or not password or not station_id:
+        raise HTTPException(
+            status_code=500,
+            detail="Missing SEMS_USER, SEMS_PASSWORD, or SEMS_STATION_ID environment variable",
+        )
 
-    data = await sems_portal_api.login_to_sems(session, account, password)
-    header_token = sems_portal_api.login_response_to_token(data)
-    logger.info("Logged in; uid=%s", data.get('uid'))
-    logger.info("Login response data: %s", data)
-    # cache power_station_id to avoid intermittent None on concurrent requests
-    global _cached_power_station_id, _cached_token, _cache_ts
-    # if token changed, invalidate cache
-    if _cached_token != header_token:
-        _cached_token = header_token
-        _cached_power_station_id = None
+    return SingleInverter(station_id, account, password, skipload=True)
 
-    # return cached if fresh (5s) and present
-    if _cached_power_station_id and (time.time() - _cache_ts) < 5:
-        logger.info("Using cached power_station_id: %s", _cached_power_station_id)
-        return data, header_token, _cached_power_station_id
 
-    # otherwise fetch under lock with a couple retries
-    async with _cache_lock:
-        if _cached_power_station_id and (time.time() - _cache_ts) < 5:
-            logger.info("Using cached power_station_id (post-lock): %s", _cached_power_station_id)
-            return data, header_token, _cached_power_station_id
+def _fetch_current_readings():
+    inverter = _create_inverter()
+    return inverter.get_current_readings(maxretries=1, delay=0)
 
-        power_station_id = None
-        for attempt in range(3):
+
+def _fetch_daily_statistics(target_date: datetime_date):
+    inverter = _create_inverter()
+    if not inverter.do_login():
+        raise SemsPlusError(FailureKind.AUTH, "SEMS+ login failed")
+
+    station_id = os.getenv('SEMS_STATION_ID')
+    client = inverter._web_client()
+    return client.request(
+        "/sems-plant/api/v1/hems/power/statisticsAndPreV2",
+        method="POST",
+        payload={
+            "stationId": station_id,
+            "items": ["pSystem", "pConsum", "pGrid"],
+            "timeScale": 1,
+            "timeZone": -1,
+            "startTime": f"{target_date.isoformat()} 00:00:00",
+            "endTime": f"{target_date.isoformat()} 23:59:59",
+        },
+    )
+
+
+def _to_kw(value):
+    if value is None:
+        return None
+    try:
+        return round(float(str(value).removesuffix('(W)')) / 1000, 1)
+    except (TypeError, ValueError):
+        return None
+
+
+def _current_power_response(readings, timestamp: datetime):
+    powerflow = readings.get('powerflow') or {}
+    inverter = readings.get('inverter') or {}
+    inverter_full = inverter.get('invert_full') or {}
+
+    pv = _to_kw(powerflow.get('pv'))
+    grid_power = _to_kw(powerflow.get('grid', inverter_full.get('pmeter')))
+    meter = -grid_power if grid_power is not None else None
+    house = _to_kw(powerflow.get('load'))
+    label = timestamp.strftime('%H:%M')
+
+    return {
+        "date": timestamp.date().isoformat(),
+        "pv": {"labels": [label], "data": [pv]},
+        "meter": {"labels": [label], "data": [meter]},
+        "house": {"labels": [label], "data": [house]},
+        "plant_statistics": "",
+    }
+
+
+def _statistics_power_response(statistics, target_date: datetime_date):
+    series_by_item = {}
+    data_list = statistics.get('dataList', []) if isinstance(statistics, dict) else []
+    for series in data_list:
+        if not isinstance(series, dict) or not isinstance(series.get('powerData'), list):
+            continue
+        points = {}
+        for point in series['powerData']:
+            if not isinstance(point, dict) or not isinstance(point.get('tp'), str):
+                continue
             try:
-                power_station_id = await sems_portal_api.get_station_ids(session, token=header_token)
-                if power_station_id:
-                    break
-            except Exception:
-                logger.warning("get_station_ids attempt %d failed", attempt + 1)
-            await asyncio.sleep(0.2)
+                value = float(point.get('power'))
+            except (TypeError, ValueError):
+                value = None
+            points[point['tp']] = round(value, 1) if value is not None else None
+        series_by_item[series.get('item')] = points
 
-        _cached_power_station_id = power_station_id
-        _cache_ts = time.time()
-        logger.info("Retrieved power_station_id: %s", _cached_power_station_id)
-        
-        return data, header_token, _cached_power_station_id
+    timestamps = sorted(set().union(*(points.keys() for points in series_by_item.values())))
+    labels = []
+    for timestamp in timestamps:
+        try:
+            labels.append(datetime.fromisoformat(timestamp).strftime('%H:%M'))
+        except ValueError:
+            labels.append(timestamp)
+
+    def values_for(item):
+        return [series_by_item.get(item, {}).get(timestamp) for timestamp in timestamps]
+
+    return {
+        "date": target_date.isoformat(),
+        "pv": {"labels": labels, "data": values_for('pSystem')},
+        "meter": {"labels": labels, "data": [-value if value is not None else None for value in values_for('pGrid')]},
+        "house": {"labels": labels, "data": values_for('pConsum')},
+        "plant_statistics": "",
+    }
+
+
+def _sems_http_exception(exc: SemsPlusError):
+    logger.warning("SEMS+ readings failed (%s)", exc.kind.value)
+    if exc.kind is FailureKind.RATE_LIMIT:
+        status_code, detail = 429, "SEMS+ rate limit exceeded"
+    elif exc.kind is FailureKind.NO_INVERTERS:
+        status_code, detail = 404, "No inverter found for SEMS_STATION_ID; verify the station ID and SEMS+ migration status"
+    else:
+        status_code, detail = 502, "SEMS+ data request failed; verify credentials and service availability"
+    return HTTPException(status_code=status_code, detail=detail)
+
 
 @app.get("/api/pc_now")
 async def get_pc_now(target_date: Optional[datetime_date] = Query(
-        default=datetime.now().date())
+    default=None)
     ):
     """Return current PCurve_Power series as kW for Chart.js.
 
     Response: {"date": date.strftime("%Y-%m-%d"), "pv": {"labels": [pv_labels], "data": [pv_data]}, "meter": {"labels": [meter_labels], "data": [meter_data]}, "house": {"labels": [house_labels], "data": [house_data]}}}
     """
-    date=target_date
-    get_pc_all_response = await get_pc_all(target_date=date)
-    pv_now = get_pc_all_response["pv"]["data"][-1] if get_pc_all_response["pv"]["data"] else None
-    house_now = get_pc_all_response["house"]["data"][-1] if get_pc_all_response["house"]["data"] else None
-    meter_now = get_pc_all_response["meter"]["data"][-1] if get_pc_all_response["meter"]["data"] else None
-    label = get_pc_all_response["pv"]["labels"][-1] if get_pc_all_response["pv"]["labels"] else None
-    get_pc_now = {"date": get_pc_all_response["date"], "pv": {"labels": [label], "data": [pv_now]}, "meter": {"labels": [label], "data": [meter_now]}, "house": {"labels": [label], "data": [house_now]}}
-    return get_pc_now
+    today = datetime.now().date()
+    if target_date is not None and target_date != today:
+        raise HTTPException(status_code=400, detail="/api/pc_now only returns the latest live measurement")
+    try:
+        readings = await run_in_threadpool(_fetch_current_readings)
+        return _current_power_response(readings, datetime.now().astimezone())
+    except HTTPException:
+        raise
+    except SemsPlusError as exc:
+        raise _sems_http_exception(exc) from exc
+    except Exception as exc:
+        logger.exception("Error fetching current SEMS+ readings")
+        raise HTTPException(status_code=502, detail="Unable to fetch current SEMS+ readings") from exc
 
 @app.get("/api/pc_all")
 async def get_pc_all(target_date: Optional[datetime_date] = Query(
-        default=datetime.now().date(),
-        description="Datum im Format YYYY-MM-DD"
+        default=None,
+        description="Datum für die historische SEMS+ Tageskurve im Format YYYY-MM-DD"
     )):
-    """Return PCurve_Power series as kW for Chart.js.
+    """Return historical SEMS+ PV, grid, and consumption power series for one day."""
+    date = target_date or datetime.now().date()
 
-    Response: {"date": date.strftime("%Y-%m-%d"), "pv": {"labels": [pv_labels], "data": [pv_data]}, "meter": {"labels": [meter_labels], "data": [meter_data]}, "house": {"labels": [house_labels], "data": [house_data]}}}
-    """
-    date=target_date
-    sems_portal_api.set_region('eu')
-    async with aiohttp.ClientSession() as session:
-        try:
-            logger.info("Handling /api/pc_all_v2 request")
-            data, header_token, power_station_id = await do_login(session)
-            # fetch plant power chart
-            chart = await sems_portal_api.get_plant_power_chart(session, plant_id=power_station_id, token=header_token, targetDate=date)
-            lines = chart.get('lines', []) if isinstance(chart, dict) else []
-
-            pv_series = next((l for l in lines if l.get('key') == 'PCurve_Power_PV'), None)
-            meter_series = next((l for l in lines if l.get('key') == 'PCurve_Power_Meter'), None)
-            house_series = next((l for l in lines if l.get('key') == 'PCurve_Power_Load'), None)
-
-            if pv_series is None or meter_series is None:
-                logger.warning("One or more required PCurve_Power series not found in chart response")
-                raise HTTPException(status_code=404, detail='One or more required PCurve_Power series not found')
-            
-            def extract_series(series):
-                if series is None:
-                    return [], []
-                xy = series.get('xy', [])
-                labels = [pt.get('x') for pt in xy]
-                # convert W to kW and round to 1 decimal, treat 0 as "" for better chart display
-                data_vals = ["" if (val := pt.get('y')) == 0 else (val := str(round(pt.get('y') / 1000.0, 1))) for pt in xy]
-                logger.info("Returning %d data points", len(data_vals))
-                return labels, data_vals
-
-            pv_labels, pv_data = extract_series(pv_series)
-            meter_labels, meter_data = extract_series(meter_series)
-            house_labels, house_data = extract_series(house_series)
-            if not house_labels and len(pv_labels) == 24:
-                house_labels = pv_labels
-                house_data = [""] * len(pv_labels)
-            
-            plant_statistics = ""
-            
-            return {"date": date.strftime("%Y-%m-%d"), "pv": {"labels": pv_labels, "data": pv_data}, "meter": {"labels": meter_labels, "data": meter_data}, "house": {"labels": house_labels, "data": house_data}, "plant_statistics": plant_statistics}
-
-        except HTTPException:
-            raise
-        except Exception as exc:
-            logger.exception("Error fetching PCurve_Power_PV")
-            raise HTTPException(status_code=500, detail=str(exc))
+    try:
+        logger.info("Fetching SEMS+ statistics for %s", date.isoformat())
+        statistics = await run_in_threadpool(_fetch_daily_statistics, date)
+        return _statistics_power_response(statistics, date)
+    except HTTPException:
+        raise
+    except SemsPlusError as exc:
+        raise _sems_http_exception(exc) from exc
+    except Exception as exc:
+        logger.exception("Error fetching SEMS+ statistics")
+        raise HTTPException(status_code=502, detail="Unable to fetch SEMS+ daily statistics") from exc
 
 
 async def _render_mobile_snapshot(request: Request, target_date: datetime_date, width: int = 960, height: int = 540):
