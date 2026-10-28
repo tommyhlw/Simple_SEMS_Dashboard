@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>SEMS Live Power Dashboard</title>
+    <title>13ha Freiheit PV Dashboard</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
       :root {
@@ -274,13 +274,13 @@
 
       function updateMeterStatus(meter) {
         if (meter == null) {
-          meterStatus.innerHTML = '<span>😕</span>No feed-in/draw';
+          meterStatus.innerHTML = '<span>😕</span>keine Daten';
         } else if (meter > 0) {
-          meterStatus.innerHTML = '<span>😎</span>Grid feed-in';
+          meterStatus.innerHTML = '<span>😎</span>Netzeinspeisung';
         } else if (meter < 0) {
-          meterStatus.innerHTML = '<span>😢</span>Grid draw';
+          meterStatus.innerHTML = '<span>😢</span>Netzbezug';
         } else {
-          meterStatus.innerHTML = '<span>😕</span>No feed-in/draw';
+          meterStatus.innerHTML = '<span>😕</span>keine Daten';
         }
       }
 
@@ -298,7 +298,7 @@
           valMeter.textContent = '— kW';
           valHouse.textContent = '— kW';
           timeLabel.textContent = 'Letzter Messwert: —';
-          meterStatus.innerHTML = '<span>😕</span>Status nicht verfügbar';
+          meterStatus.innerHTML = '<span>😕</span>keine Daten';
         }
         if (dailyResult.status === 'fulfilled') {
           latestPCData = dailyResult.value;

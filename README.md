@@ -99,8 +99,8 @@ label,pv,meter,house
   `start_server.sh` loads it automatically if present.
 - `pc_all` requests `pSystem`, `pConsum`, and `pGrid` through the SEMS+ `statisticsAndPreV2` API.
   `pc_now` uses the station flow endpoint. The meter indicator describes grid export/import, not PV
-  production. SEMS reports negative `pGrid` for export and positive for import; the API reverses
-  that sign so displayed meter power is positive for import and negative for export.
+  production. The API keeps the station's `pGrid` sign: positive means feed-in and negative means
+  grid draw. House consumption comes directly from `pConsum`/`load`.
 - For troubleshooting: check logs via `docker compose logs -f` or the `./start_server.sh` output.
 - If you'd like SVG icons, localized labels, or a Prometheus/InfluxDB export option, feel free to
   open an issue — contributions are welcome.

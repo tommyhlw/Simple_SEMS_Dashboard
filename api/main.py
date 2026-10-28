@@ -86,8 +86,7 @@ def _current_power_response(readings, timestamp: datetime):
     inverter_full = inverter.get('invert_full') or {}
 
     pv = _to_kw(powerflow.get('pv'))
-    grid_power = _to_kw(powerflow.get('grid', inverter_full.get('pmeter')))
-    meter = -grid_power if grid_power is not None else None
+    meter = _to_kw(powerflow.get('grid', inverter_full.get('pmeter')))
     house = _to_kw(powerflow.get('load'))
     label = timestamp.strftime('%H:%M')
 
@@ -131,7 +130,7 @@ def _statistics_power_response(statistics, target_date: datetime_date):
     return {
         "date": target_date.isoformat(),
         "pv": {"labels": labels, "data": values_for('pSystem')},
-        "meter": {"labels": labels, "data": [-value if value is not None else None for value in values_for('pGrid')]},
+        "meter": {"labels": labels, "data": values_for('pGrid')},
         "house": {"labels": labels, "data": values_for('pConsum')},
         "plant_statistics": "",
     }
